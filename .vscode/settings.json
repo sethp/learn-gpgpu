@@ -1,3 +1,18 @@
 {
-  "cSpell.words": ["astro"]
+  "cSpell.words": [
+    "astro",
+    "astrojs",
+    "emscripten",
+    "pthreads",
+    "spvasm",
+    "talvos"
+  ],
+  "[astro]": {
+    "editor.formatOnType": true
+    // TODO https://github.com/wclr/vscode-autosave-ext
+    // and/or https://github.com/microsoft/vscode/issues/181942
+    // "files.autoSave": "afterDelay"
+  }
+  // "files.autoSave": "afterDelay",
+  // "files.autoSaveDelay": 100
 }

@@ -1,0 +1,96 @@
+---
+import { getEntry } from 'astro:content';
+
+// todo can we snarf the types from `getEntry` ?
+async function getContents(c: string, f: string) {
+	const file = await getEntry(c as any, f);
+	return file!.data.contents;
+}
+
+// functionality
+
+// TODO: wasm module
+// TODO: layout
+
+// polish
+
+// TODO: loading screen
+// TODO: error boundary
+// TODO: monaco editor
+// TODO: lsp integration w/ tree-sitter
+// TODO: styling ? (things improved a bit here when I took out the tailwind reset)
+
+// debuggability
+// TODO: serve up source map(s) (+ DWARF?); associated files
+---
+
+<html>
+	<head>
+		<title>gpgpu playground</title>
+		<script type="text/javascript" src="../wasm/talvos-wasm.js"></script>
+		<script>
+			// import { talvos } from '../wasm/talvos-wasm';
+
+			var outBuf = '';
+			var Module = {
+				print: function (text) {
+					outBuf += text + '\n';
+				},
+				printErr: function (text) {
+					outBuf += text + '\n';
+				},
+			};
+
+			await talvos(Module).then((instance) => {
+				window.run_wasm = instance.cwrap('run_wasm', null, ['string', 'string']);
+				window.validate_wasm = instance.cwrap('validate_wasm', 'boolean', ['string']);
+			});
+
+			window.run = function () {
+				outBuf = '';
+				const text = document.getElementById('module').value;
+				const commands = document.getElementById('commands').value;
+
+				const start = window.performance.mark('run_wasm', { detail: { text, commands } });
+				try {
+					run_wasm(text, commands);
+					// TODO exception handling
+					// TODO something goes very wrong when `BUFFER output 2 INT32 FILL 0` (memory access exception reporting failure) and then we try to `run` again
+					//   ^ bjorks the whole tab
+					// TODO (generally, handling "invalid memory access" better?)
+				} finally {
+					const call = window.performance.measure(start.name, start.name);
+					console.log(`done! took ${call.duration}ms`);
+					console.log('output:\n', outBuf);
+				}
+
+				document.getElementById('output').value = outBuf;
+			};
+
+			window.validate = function () {
+				outBuf = '';
+				const text = document.getElementById('module').value;
+
+				const start = window.performance.mark('validate_wasm', { detail: { text } });
+				let ok = false;
+				try {
+					ok = validate_wasm(text, commands);
+				} finally {
+					const call = window.performance.measure(start.name, start.name);
+					console.log(`done! took ${call.duration}ms`);
+					console.log('output:\n', outBuf);
+				}
+				if (!outBuf && ok) outBuf = 'ok!';
+
+				document.getElementById('output').value = outBuf;
+			};
+		</script>
+	</head>
+	<body>
+		<textarea id="module">{await getContents('talvos', 'phi-swap.spvasm')}</textarea>
+		<textarea id="commands">{await getContents('talvos', 'phi-swap.tcf')}</textarea>
+		<textarea id="output"> </textarea>
+		<button onclick="validate(); ">validate</button>
+		<button onclick="run();">run</button>
+	</body>
+</html>
