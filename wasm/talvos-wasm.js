@@ -1,9 +1,9 @@
 
 var talvos = (() => {
-  var _scriptDir = typeof document !== 'undefined' && document.currentScript ? document.currentScript.src : undefined;
-  if (typeof __filename !== 'undefined') _scriptDir = _scriptDir || __filename;
+  var _scriptDir = import.meta.url;
+  
   return (
-function(moduleArg = {}) {
+async function(moduleArg = {}) {
 
 // include: shell.js
 // The Module object: Our interface to the outside world. We import
@@ -27,7 +27,7 @@ Module['ready'] = new Promise((resolve, reject) => {
   readyPromiseResolve = resolve;
   readyPromiseReject = reject;
 });
-["_run_wasm","__emscripten_thread_init","__emscripten_thread_exit","__emscripten_thread_crashed","__emscripten_thread_mailbox_await","__emscripten_tls_init","_pthread_self","checkMailbox","establishStackSpace","invokeEntryPoint","PThread","getExceptionMessage","___get_exception_message","_free","___cpp_exception","___cxa_increment_exception_refcount","___cxa_decrement_exception_refcount","___thrown_object_from_unwind_exception","_validate_wasm","___indirect_function_table","_fflush","__emscripten_check_mailbox","onRuntimeInitialized"].forEach((prop) => {
+["_main","__emscripten_thread_init","__emscripten_thread_exit","__emscripten_thread_crashed","__emscripten_thread_mailbox_await","__emscripten_tls_init","_pthread_self","checkMailbox","establishStackSpace","invokeEntryPoint","PThread","getExceptionMessage","___get_exception_message","_free","___cpp_exception","___cxa_increment_exception_refcount","___cxa_decrement_exception_refcount","___thrown_object_from_unwind_exception","_run_wasm","_validate_wasm","_exception","_assertion","___indirect_function_table","_fflush","__emscripten_check_mailbox","onRuntimeInitialized"].forEach((prop) => {
   if (!Object.getOwnPropertyDescriptor(Module['ready'], prop)) {
     Object.defineProperty(Module['ready'], prop, {
       get: () => abort('You are getting ' + prop + ' on the Promise object, instead of the instance. Use .then() to get called back with the instance, see the MODULARIZE docs in src/settings.js'),
@@ -88,8 +88,7 @@ function locateFile(path) {
 // Hooks that are implemented differently in different runtime environments.
 var read_,
     readAsync,
-    readBinary,
-    setWindowTitle;
+    readBinary;
 
 if (ENVIRONMENT_IS_NODE) {
   if (typeof process == 'undefined' || !process.release || process.release.name !== 'node') throw new Error('not compiled for this environment (did you build to HTML and try to run it not on the web, or set ENVIRONMENT to something - like node - and run it someplace else - like on the web?)');
@@ -106,6 +105,9 @@ if (ENVIRONMENT_IS_NODE) {
   // the require()` function.  This is only necessary for multi-environment
   // builds, `-sENVIRONMENT=node` emits a static import declaration instead.
   // TODO: Swap all `require()`'s with `import()`'s?
+  const { createRequire } = await import('module');
+  /** @suppress{duplicate} */
+  var require = createRequire(import.meta.url);
   // These modules will usually be used on Node.js. Load them eagerly to avoid
   // the complexity of lazy-loading.
   var fs = require('fs');
@@ -114,7 +116,10 @@ if (ENVIRONMENT_IS_NODE) {
   if (ENVIRONMENT_IS_WORKER) {
     scriptDirectory = nodePath.dirname(scriptDirectory) + '/';
   } else {
-    scriptDirectory = __dirname + '/';
+    // EXPORT_ES6 + ENVIRONMENT_IS_NODE always requires use of import.meta.url,
+    // since there's no way getting the current absolute path of the module when
+    // support for that is not available.
+    scriptDirectory = require('url').fileURLToPath(new URL('./', import.meta.url)); // includes trailing slash
   }
 
 // include: node_shell_read.js
@@ -305,8 +310,6 @@ read_ = (url) => {
 
 // end include: web_or_worker_shell_read.js
   }
-
-  setWindowTitle = (title) => document.title = title;
 } else
 {
   throw new Error('environment detection error');
@@ -362,7 +365,7 @@ assert(typeof Module['filePackagePrefixURL'] == 'undefined', 'Module.filePackage
 assert(typeof Module['read'] == 'undefined', 'Module.read option was removed (modify read_ in JS)');
 assert(typeof Module['readAsync'] == 'undefined', 'Module.readAsync option was removed (modify readAsync in JS)');
 assert(typeof Module['readBinary'] == 'undefined', 'Module.readBinary option was removed (modify readBinary in JS)');
-assert(typeof Module['setWindowTitle'] == 'undefined', 'Module.setWindowTitle option was removed (modify setWindowTitle in JS)');
+assert(typeof Module['setWindowTitle'] == 'undefined', 'Module.setWindowTitle option was removed (modify emscripten_set_window_title in JS)');
 assert(typeof Module['TOTAL_MEMORY'] == 'undefined', 'Module.TOTAL_MEMORY has been renamed Module.INITIAL_MEMORY');
 legacyModuleProp('asm', 'wasmExports');
 legacyModuleProp('read', 'read_');
@@ -372,6 +375,11 @@ legacyModuleProp('setWindowTitle', 'setWindowTitle');
 var IDBFS = 'IDBFS is no longer included by default; build with -lidbfs.js';
 var PROXYFS = 'PROXYFS is no longer included by default; build with -lproxyfs.js';
 var WORKERFS = 'WORKERFS is no longer included by default; build with -lworkerfs.js';
+var FETCHFS = 'FETCHFS is no longer included by default; build with -lfetchfs.js';
+var ICASEFS = 'ICASEFS is no longer included by default; build with -licasefs.js';
+var JSFILEFS = 'JSFILEFS is no longer included by default; build with -ljsfilefs.js';
+var OPFS = 'OPFS is no longer included by default; build with -lopfs.js';
+
 var NODEFS = 'NODEFS is no longer included by default; build with -lnodefs.js';
 
 assert(
@@ -403,7 +411,6 @@ if (typeof WebAssembly != 'object') {
 // Wasm globals
 
 var wasmMemory;
-var wasmExports;
 
 // For sending to workers.
 var wasmModule;
@@ -451,6 +458,12 @@ var HEAP,
   HEAPU32,
 /** @type {!Float32Array} */
   HEAPF32,
+/* BigInt64Array type is not correctly defined in closure
+/** not-@type {!BigInt64Array} */
+  HEAP64,
+/* BigUInt64Array type is not correctly defined in closure
+/** not-t@type {!BigUint64Array} */
+  HEAPU64,
 /** @type {!Float64Array} */
   HEAPF64;
 
@@ -458,12 +471,14 @@ function updateMemoryViews() {
   var b = wasmMemory.buffer;
   Module['HEAP8'] = HEAP8 = new Int8Array(b);
   Module['HEAP16'] = HEAP16 = new Int16Array(b);
-  Module['HEAP32'] = HEAP32 = new Int32Array(b);
   Module['HEAPU8'] = HEAPU8 = new Uint8Array(b);
   Module['HEAPU16'] = HEAPU16 = new Uint16Array(b);
+  Module['HEAP32'] = HEAP32 = new Int32Array(b);
   Module['HEAPU32'] = HEAPU32 = new Uint32Array(b);
   Module['HEAPF32'] = HEAPF32 = new Float32Array(b);
   Module['HEAPF64'] = HEAPF64 = new Float64Array(b);
+  Module['HEAP64'] = HEAP64 = new BigInt64Array(b);
+  Module['HEAPU64'] = HEAPU64 = new BigUint64Array(b);
 }
 
 assert(!Module['STACK_SIZE'], 'STACK_SIZE can no longer be set at runtime.  Use -sSTACK_SIZE at link time')
@@ -491,9 +506,8 @@ if (ENVIRONMENT_IS_PTHREAD) {
   {
     wasmMemory = new WebAssembly.Memory({
       'initial': INITIAL_MEMORY / 65536,
-      'maximum': INITIAL_MEMORY / 65536
-      ,
-      'shared': true
+      'maximum': INITIAL_MEMORY / 65536,
+      'shared': true,
     });
     if (!(wasmMemory.buffer instanceof SharedArrayBuffer)) {
       err('requested a shared WebAssembly.Memory but the returned buffer is not a SharedArrayBuffer, indicating that while the browser has SharedArrayBuffer it does not have WebAssembly threads support - you may need to set a flag');
@@ -514,12 +528,6 @@ INITIAL_MEMORY = wasmMemory.buffer.byteLength;
 assert(INITIAL_MEMORY % 65536 === 0);
 // end include: runtime_init_memory.js
 
-// include: runtime_init_table.js
-// In regular non-RELOCATABLE mode the table is exported
-// from the wasm module and this will be assigned once
-// the exports are available.
-var wasmTable;
-// end include: runtime_init_table.js
 // include: runtime_stack_check.js
 // Initializes the stack cookie. Called at the startup of main and at the startup of each thread in pthreads mode.
 function writeStackCookie() {
@@ -696,7 +704,7 @@ function addRunDependency(id) {
             shown = true;
             err('still waiting on run dependencies:');
           }
-          err('dependency: ' + dep);
+          err(`dependency: ${dep}`);
         }
         if (shown) {
           err('(end of list)');
@@ -813,10 +821,15 @@ function createExportWrapper(name) {
 // include: runtime_exceptions.js
 // end include: runtime_exceptions.js
 var wasmBinaryFile;
+if (Module['locateFile']) {
   wasmBinaryFile = 'talvos-wasm.wasm';
   if (!isDataURI(wasmBinaryFile)) {
     wasmBinaryFile = locateFile(wasmBinaryFile);
   }
+} else {
+  // Use bundler-friendly `new URL(..., import.meta.url)` pattern; works in browsers too.
+  wasmBinaryFile = new URL('talvos-wasm.wasm', import.meta.url).href;
+}
 
 function getBinarySync(file) {
   if (file == wasmBinaryFile && wasmBinary) {
@@ -864,11 +877,11 @@ function instantiateArrayBuffer(binaryFile, imports, receiver) {
   }).then((instance) => {
     return instance;
   }).then(receiver, (reason) => {
-    err('failed to asynchronously prepare wasm: ' + reason);
+    err(`failed to asynchronously prepare wasm: ${reason}`);
 
     // Warn on some common problems.
     if (isFileURI(wasmBinaryFile)) {
-      err('warning: Loading from a file URI (' + wasmBinaryFile + ') is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how-do-i-run-a-local-webserver-for-testing-why-does-my-program-stall-in-downloading-or-preparing');
+      err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how-do-i-run-a-local-webserver-for-testing-why-does-my-program-stall-in-downloading-or-preparing`);
     }
     abort(reason);
   });
@@ -901,7 +914,7 @@ function instantiateAsync(binary, binaryFile, imports, callback) {
         function(reason) {
           // We expect the most common failure cause to be a bad MIME type for the binary,
           // in which case falling back to ArrayBuffer instantiation should work.
-          err('wasm streaming compile failed: ' + reason);
+          err(`wasm streaming compile failed: ${reason}`);
           err('falling back to ArrayBuffer instantiation');
           return instantiateArrayBuffer(binaryFile, imports, callback);
         });
@@ -923,9 +936,8 @@ function createWasm() {
   // performing other necessary setup
   /** @param {WebAssembly.Module=} module*/
   function receiveInstance(instance, module) {
-    var exports = instance.exports;
+    wasmExports = instance.exports;
 
-    wasmExports = exports;
     
 
     registerTLSInit(wasmExports['_emscripten_tls_init']);
@@ -939,7 +951,7 @@ function createWasm() {
     // We now have the Wasm module loaded up, keep a reference to the compiled module so we can post it to the workers.
     wasmModule = module;
     removeRunDependency('wasm-instantiate');
-    return exports;
+    return wasmExports;
   }
   // wait for the pthread pool (if any)
   addRunDependency('wasm-instantiate');
@@ -968,7 +980,7 @@ function createWasm() {
     try {
       return Module['instantiateWasm'](info, receiveInstance);
     } catch(e) {
-      err('Module.instantiateWasm callback failed with error: ' + e);
+      err(`Module.instantiateWasm callback failed with error: ${e}`);
         // If instantiation fails, reject the module ready promise.
         readyPromiseReject(e);
     }
@@ -978,10 +990,6 @@ function createWasm() {
   instantiateAsync(wasmBinary, wasmBinaryFile, info, receiveInstantiationResult).catch(readyPromiseReject);
   return {}; // no exports yet; we'll fill them in later
 }
-
-// Globals used by JS i64 conversions (see makeSetValue)
-var tempDouble;
-var tempI64;
 
 // include: runtime_debug.js
 function legacyModuleProp(prop, newName, incomming=true) {
@@ -1029,6 +1037,7 @@ function missingGlobal(sym, msg) {
 }
 
 missingGlobal('buffer', 'Please use HEAP8.buffer or wasmMemory.buffer');
+missingGlobal('asm', 'Please use wasmExports instead');
 
 function missingLibrarySymbol(sym) {
   if (typeof globalThis !== 'undefined' && !Object.getOwnPropertyDescriptor(globalThis, sym)) {
@@ -1099,7 +1108,7 @@ function dbg(text) {
 
   
   
-  var terminateWorker = function(worker) {
+  var terminateWorker = (worker) => {
       worker.terminate();
       // terminate() can be asynchronous, so in theory the worker can continue
       // to run for some amount of time after termination.  However from our POV
@@ -1108,11 +1117,11 @@ function dbg(text) {
       // the onmessage handlers if the message was coming from valid worker.
       worker.onmessage = (e) => {
         var cmd = e['data']['cmd'];
-        err('received "' + cmd + '" command from terminated worker: ' + worker.workerID);
+        err(`received "${cmd}" command from terminated worker: ${worker.workerID}`);
       };
     };
   
-  function killThread(pthread_ptr) {
+  var killThread = (pthread_ptr) => {
       assert(!ENVIRONMENT_IS_PTHREAD, 'Internal Error! killThread() can only ever be called from main application thread!');
       assert(pthread_ptr, 'Internal Error! Null pthread_ptr in killThread!');
       var worker = PThread.pthreads[pthread_ptr];
@@ -1123,29 +1132,29 @@ function dbg(text) {
       // but don't put it back to the pool.
       PThread.runningWorkers.splice(PThread.runningWorkers.indexOf(worker), 1); // Not a running Worker anymore.
       worker.pthread_ptr = 0;
-    }
+    };
   
-  function cancelThread(pthread_ptr) {
+  var cancelThread = (pthread_ptr) => {
       assert(!ENVIRONMENT_IS_PTHREAD, 'Internal Error! cancelThread() can only ever be called from main application thread!');
       assert(pthread_ptr, 'Internal Error! Null pthread_ptr in cancelThread!');
       var worker = PThread.pthreads[pthread_ptr];
       worker.postMessage({ 'cmd': 'cancel' });
-    }
+    };
   
-  function cleanupThread(pthread_ptr) {
+  var cleanupThread = (pthread_ptr) => {
       assert(!ENVIRONMENT_IS_PTHREAD, 'Internal Error! cleanupThread() can only ever be called from main application thread!');
       assert(pthread_ptr, 'Internal Error! Null pthread_ptr in cleanupThread!');
       var worker = PThread.pthreads[pthread_ptr];
       assert(worker);
       PThread.returnWorkerToPool(worker);
-    }
+    };
   
   var zeroMemory = (address, size) => {
       HEAPU8.fill(0, address, address + size);
       return address;
     };
   
-  function spawnThread(threadParams) {
+  var spawnThread = (threadParams) => {
       assert(!ENVIRONMENT_IS_PTHREAD, 'Internal Error! spawnThread() can only ever be called from main application thread!');
       assert(threadParams.pthread_ptr, 'Internal error, no pthread ptr!');
   
@@ -1178,7 +1187,7 @@ function dbg(text) {
       // Ask the worker to start executing its pthread entry point function.
       worker.postMessage(msg, threadParams.transferList);
       return 0;
-    }
+    };
   
   
   
@@ -1503,7 +1512,7 @@ function dbg(text) {
           var fd = process.stdin.fd;
   
           try {
-            bytesRead = fs.readSync(fd, buf, 0, BUFSIZE, -1);
+            bytesRead = fs.readSync(fd, buf);
           } catch(e) {
             // Cross-platform differences: on Windows, reading EOF throws an exception, but on other OSes,
             // reading EOF returns 0. Uniformize behavior by treating the EOF exception to return 0.
@@ -1540,7 +1549,7 @@ function dbg(text) {
     };
   var TTY = {
   ttys:[],
-  init:function () {
+  init() {
         // https://github.com/emscripten-core/emscripten/pull/1555
         // if (ENVIRONMENT_IS_NODE) {
         //   // currently, FS.init does not distinguish if process.stdin is a file or TTY
@@ -1550,7 +1559,7 @@ function dbg(text) {
         //   process.stdin.setEncoding('utf8');
         // }
       },
-  shutdown:function() {
+  shutdown() {
         // https://github.com/emscripten-core/emscripten/pull/1555
         // if (ENVIRONMENT_IS_NODE) {
         //   // inolen: any idea as to why node -e 'process.stdin.read()' wouldn't exit immediately (with process.stdin being a tty)?
@@ -1561,12 +1570,12 @@ function dbg(text) {
         //   process.stdin.pause();
         // }
       },
-  register:function(dev, ops) {
+  register(dev, ops) {
         TTY.ttys[dev] = { input: [], output: [], ops: ops };
         FS.registerDevice(dev, TTY.stream_ops);
       },
   stream_ops:{
-  open:function(stream) {
+  open(stream) {
           var tty = TTY.ttys[stream.node.rdev];
           if (!tty) {
             throw new FS.ErrnoError(43);
@@ -1574,14 +1583,14 @@ function dbg(text) {
           stream.tty = tty;
           stream.seekable = false;
         },
-  close:function(stream) {
+  close(stream) {
           // flush any pending line data
           stream.tty.ops.fsync(stream.tty);
         },
-  fsync:function(stream) {
+  fsync(stream) {
           stream.tty.ops.fsync(stream.tty);
         },
-  read:function(stream, buffer, offset, length, pos /* ignored */) {
+  read(stream, buffer, offset, length, pos /* ignored */) {
           if (!stream.tty || !stream.tty.ops.get_char) {
             throw new FS.ErrnoError(60);
           }
@@ -1605,7 +1614,7 @@ function dbg(text) {
           }
           return bytesRead;
         },
-  write:function(stream, buffer, offset, length, pos) {
+  write(stream, buffer, offset, length, pos) {
           if (!stream.tty || !stream.tty.ops.put_char) {
             throw new FS.ErrnoError(60);
           }
@@ -1623,10 +1632,10 @@ function dbg(text) {
         },
   },
   default_tty_ops:{
-  get_char:function(tty) {
+  get_char(tty) {
           return FS_stdin_getChar();
         },
-  put_char:function(tty, val) {
+  put_char(tty, val) {
           if (val === null || val === 10) {
             out(UTF8ArrayToString(tty.output, 0));
             tty.output = [];
@@ -1634,13 +1643,13 @@ function dbg(text) {
             if (val != 0) tty.output.push(val); // val == 0 would cut text output off in the middle.
           }
         },
-  fsync:function(tty) {
+  fsync(tty) {
           if (tty.output && tty.output.length > 0) {
             out(UTF8ArrayToString(tty.output, 0));
             tty.output = [];
           }
         },
-  ioctl_tcgets:function(tty) {
+  ioctl_tcgets(tty) {
           // typical setting
           return {
             c_iflag: 25856,
@@ -1654,16 +1663,16 @@ function dbg(text) {
             ]
           };
         },
-  ioctl_tcsets:function(tty, optional_actions, data) {
+  ioctl_tcsets(tty, optional_actions, data) {
           // currently just ignore
           return 0;
         },
-  ioctl_tiocgwinsz:function(tty) {
+  ioctl_tiocgwinsz(tty) {
           return [24, 80];
         },
   },
   default_tty1_ops:{
-  put_char:function(tty, val) {
+  put_char(tty, val) {
           if (val === null || val === 10) {
             err(UTF8ArrayToString(tty.output, 0));
             tty.output = [];
@@ -1671,7 +1680,7 @@ function dbg(text) {
             if (val != 0) tty.output.push(val);
           }
         },
-  fsync:function(tty) {
+  fsync(tty) {
           if (tty.output && tty.output.length > 0) {
             err(UTF8ArrayToString(tty.output, 0));
             tty.output = [];
@@ -2035,13 +2044,17 @@ function dbg(text) {
     };
   
   
+  var FS_createDataFile = (parent, name, fileData, canRead, canWrite, canOwn) => {
+      return FS.createDataFile(parent, name, fileData, canRead, canWrite, canOwn);
+    };
+  
   var preloadPlugins = Module['preloadPlugins'] || [];
-  function FS_handledByPreloadPlugin(byteArray, fullname, finish, onerror) {
+  var FS_handledByPreloadPlugin = (byteArray, fullname, finish, onerror) => {
       // Ensure plugins are ready.
       if (typeof Browser != 'undefined') Browser.init();
   
       var handled = false;
-      preloadPlugins.forEach(function(plugin) {
+      preloadPlugins.forEach((plugin) => {
         if (handled) return;
         if (plugin['canHandle'](fullname)) {
           plugin['handle'](byteArray, fullname, finish, onerror);
@@ -2049,8 +2062,8 @@ function dbg(text) {
         }
       });
       return handled;
-    }
-  function FS_createPreloadedFile(parent, name, url, canRead, canWrite, onload, onerror, dontCreateFile, canOwn, preFinish) {
+    };
+  var FS_createPreloadedFile = (parent, name, url, canRead, canWrite, onload, onerror, dontCreateFile, canOwn, preFinish) => {
       // TODO we should allow people to just pass in a complete filename instead
       // of parent and name being that we just join them anyways
       var fullname = name ? PATH_FS.resolve(PATH.join2(parent, name)) : parent;
@@ -2059,7 +2072,7 @@ function dbg(text) {
         function finish(byteArray) {
           if (preFinish) preFinish();
           if (!dontCreateFile) {
-            FS.createDataFile(parent, name, byteArray, canRead, canWrite, canOwn);
+            FS_createDataFile(parent, name, byteArray, canRead, canWrite, canOwn);
           }
           if (onload) onload();
           removeRunDependency(dep);
@@ -2078,9 +2091,9 @@ function dbg(text) {
       } else {
         processData(url);
       }
-    }
+    };
   
-  function FS_modeStringToFlags(str) {
+  var FS_modeStringToFlags = (str) => {
       var flagModes = {
         'r': 0,
         'r+': 2,
@@ -2094,14 +2107,14 @@ function dbg(text) {
         throw new Error(`Unknown file open mode: ${str}`);
       }
       return flags;
-    }
+    };
   
-  function FS_getMode(canRead, canWrite) {
+  var FS_getMode = (canRead, canWrite) => {
       var mode = 0;
       if (canRead) mode |= 292 | 73;
       if (canWrite) mode |= 146;
       return mode;
-    }
+    };
   
   
   
@@ -2231,11 +2244,11 @@ function dbg(text) {
   var ERRNO_CODES = {
   };
   
-  function demangle(func) {
+  var demangle = (func) => {
       warnOnce('warning: build with -sDEMANGLE_SUPPORT to link in libcxxabi demangling');
       return func;
-    }
-  function demangleAll(text) {
+    };
+  var demangleAll = (text) => {
       var regex =
         /\b_Z[\w\d_]+/g;
       return text.replace(regex,
@@ -2243,7 +2256,7 @@ function dbg(text) {
           var y = demangle(x);
           return x === y ? x : (y + ' [' + x + ']');
         });
-    }
+    };
   var FS = {
   root:null,
   mounts:[],
@@ -2260,7 +2273,7 @@ function dbg(text) {
   },
   filesystems:null,
   syncFSRequests:0,
-  lookupPath:(path, opts = {}) => {
+  lookupPath(path, opts = {}) {
         path = PATH_FS.resolve(path);
   
         if (!path) return { path: '', node: null };
@@ -2319,7 +2332,7 @@ function dbg(text) {
   
         return { path: current_path, node: current };
       },
-  getPath:(node) => {
+  getPath(node) {
         var path;
         while (true) {
           if (FS.isRoot(node)) {
@@ -2331,7 +2344,7 @@ function dbg(text) {
           node = node.parent;
         }
       },
-  hashName:(parentid, name) => {
+  hashName(parentid, name) {
         var hash = 0;
   
         for (var i = 0; i < name.length; i++) {
@@ -2339,12 +2352,12 @@ function dbg(text) {
         }
         return ((parentid + hash) >>> 0) % FS.nameTable.length;
       },
-  hashAddNode:(node) => {
+  hashAddNode(node) {
         var hash = FS.hashName(node.parent.id, node.name);
         node.name_next = FS.nameTable[hash];
         FS.nameTable[hash] = node;
       },
-  hashRemoveNode:(node) => {
+  hashRemoveNode(node) {
         var hash = FS.hashName(node.parent.id, node.name);
         if (FS.nameTable[hash] === node) {
           FS.nameTable[hash] = node.name_next;
@@ -2359,7 +2372,7 @@ function dbg(text) {
           }
         }
       },
-  lookupNode:(parent, name) => {
+  lookupNode(parent, name) {
         var errCode = FS.mayLookup(parent);
         if (errCode) {
           throw new FS.ErrnoError(errCode, parent);
@@ -2374,7 +2387,7 @@ function dbg(text) {
         // if we failed to find it in the cache, call into the VFS
         return FS.lookup(parent, name);
       },
-  createNode:(parent, name, mode, rdev) => {
+  createNode(parent, name, mode, rdev) {
         assert(typeof parent == 'object')
         var node = new FS.FSNode(parent, name, mode, rdev);
   
@@ -2382,44 +2395,44 @@ function dbg(text) {
   
         return node;
       },
-  destroyNode:(node) => {
+  destroyNode(node) {
         FS.hashRemoveNode(node);
       },
-  isRoot:(node) => {
+  isRoot(node) {
         return node === node.parent;
       },
-  isMountpoint:(node) => {
+  isMountpoint(node) {
         return !!node.mounted;
       },
-  isFile:(mode) => {
+  isFile(mode) {
         return (mode & 61440) === 32768;
       },
-  isDir:(mode) => {
+  isDir(mode) {
         return (mode & 61440) === 16384;
       },
-  isLink:(mode) => {
+  isLink(mode) {
         return (mode & 61440) === 40960;
       },
-  isChrdev:(mode) => {
+  isChrdev(mode) {
         return (mode & 61440) === 8192;
       },
-  isBlkdev:(mode) => {
+  isBlkdev(mode) {
         return (mode & 61440) === 24576;
       },
-  isFIFO:(mode) => {
+  isFIFO(mode) {
         return (mode & 61440) === 4096;
       },
-  isSocket:(mode) => {
+  isSocket(mode) {
         return (mode & 49152) === 49152;
       },
-  flagsToPermissionString:(flag) => {
+  flagsToPermissionString(flag) {
         var perms = ['r', 'w', 'rw'][flag & 3];
         if ((flag & 512)) {
           perms += 'w';
         }
         return perms;
       },
-  nodePermissions:(node, perms) => {
+  nodePermissions(node, perms) {
         if (FS.ignorePermissions) {
           return 0;
         }
@@ -2433,13 +2446,13 @@ function dbg(text) {
         }
         return 0;
       },
-  mayLookup:(dir) => {
+  mayLookup(dir) {
         var errCode = FS.nodePermissions(dir, 'x');
         if (errCode) return errCode;
         if (!dir.node_ops.lookup) return 2;
         return 0;
       },
-  mayCreate:(dir, name) => {
+  mayCreate(dir, name) {
         try {
           var node = FS.lookupNode(dir, name);
           return 20;
@@ -2447,7 +2460,7 @@ function dbg(text) {
         }
         return FS.nodePermissions(dir, 'wx');
       },
-  mayDelete:(dir, name, isdir) => {
+  mayDelete(dir, name, isdir) {
         var node;
         try {
           node = FS.lookupNode(dir, name);
@@ -2472,7 +2485,7 @@ function dbg(text) {
         }
         return 0;
       },
-  mayOpen:(node, flags) => {
+  mayOpen(node, flags) {
         if (!node) {
           return 44;
         }
@@ -2487,7 +2500,7 @@ function dbg(text) {
         return FS.nodePermissions(node, FS.flagsToPermissionString(flags));
       },
   MAX_OPEN_FDS:4096,
-  nextfd:() => {
+  nextfd() {
         for (var fd = 0; fd <= FS.MAX_OPEN_FDS; fd++) {
           if (!FS.streams[fd]) {
             return fd;
@@ -2495,7 +2508,7 @@ function dbg(text) {
         }
         throw new FS.ErrnoError(33);
       },
-  getStreamChecked:(fd) => {
+  getStreamChecked(fd) {
         var stream = FS.getStream(fd);
         if (!stream) {
           throw new FS.ErrnoError(8);
@@ -2503,7 +2516,7 @@ function dbg(text) {
         return stream;
       },
   getStream:(fd) => FS.streams[fd],
-  createStream:(stream, fd = -1) => {
+  createStream(stream, fd = -1) {
         if (!FS.FSStream) {
           FS.FSStream = /** @constructor */ function() {
             this.shared = { };
@@ -2551,11 +2564,11 @@ function dbg(text) {
         FS.streams[fd] = stream;
         return stream;
       },
-  closeStream:(fd) => {
+  closeStream(fd) {
         FS.streams[fd] = null;
       },
   chrdev_stream_ops:{
-  open:(stream) => {
+  open(stream) {
           var device = FS.getDevice(stream.node.rdev);
           // override node's stream ops with the device's
           stream.stream_ops = device.stream_ops;
@@ -2564,18 +2577,18 @@ function dbg(text) {
             stream.stream_ops.open(stream);
           }
         },
-  llseek:() => {
+  llseek() {
           throw new FS.ErrnoError(70);
         },
   },
   major:(dev) => ((dev) >> 8),
   minor:(dev) => ((dev) & 0xff),
   makedev:(ma, mi) => ((ma) << 8 | (mi)),
-  registerDevice:(dev, ops) => {
+  registerDevice(dev, ops) {
         FS.devices[dev] = { stream_ops: ops };
       },
   getDevice:(dev) => FS.devices[dev],
-  getMounts:(mount) => {
+  getMounts(mount) {
         var mounts = [];
         var check = [mount];
   
@@ -2589,7 +2602,7 @@ function dbg(text) {
   
         return mounts;
       },
-  syncfs:(populate, callback) => {
+  syncfs(populate, callback) {
         if (typeof populate == 'function') {
           callback = populate;
           populate = false;
@@ -2631,7 +2644,7 @@ function dbg(text) {
           mount.type.syncfs(mount, populate, done);
         });
       },
-  mount:(type, opts, mountpoint) => {
+  mount(type, opts, mountpoint) {
         if (typeof type == 'string') {
           // The filesystem was not included, and instead we have an error
           // message stored in the variable.
@@ -2684,7 +2697,7 @@ function dbg(text) {
   
         return mountRoot;
       },
-  unmount:(mountpoint) => {
+  unmount(mountpoint) {
         var lookup = FS.lookupPath(mountpoint, { follow_mount: false });
   
         if (!FS.isMountpoint(lookup.node)) {
@@ -2718,10 +2731,10 @@ function dbg(text) {
         assert(idx !== -1);
         node.mount.mounts.splice(idx, 1);
       },
-  lookup:(parent, name) => {
+  lookup(parent, name) {
         return parent.node_ops.lookup(parent, name);
       },
-  mknod:(path, mode, dev) => {
+  mknod(path, mode, dev) {
         var lookup = FS.lookupPath(path, { parent: true });
         var parent = lookup.node;
         var name = PATH.basename(path);
@@ -2737,19 +2750,19 @@ function dbg(text) {
         }
         return parent.node_ops.mknod(parent, name, mode, dev);
       },
-  create:(path, mode) => {
+  create(path, mode) {
         mode = mode !== undefined ? mode : 438 /* 0666 */;
         mode &= 4095;
         mode |= 32768;
         return FS.mknod(path, mode, 0);
       },
-  mkdir:(path, mode) => {
+  mkdir(path, mode) {
         mode = mode !== undefined ? mode : 511 /* 0777 */;
         mode &= 511 | 512;
         mode |= 16384;
         return FS.mknod(path, mode, 0);
       },
-  mkdirTree:(path, mode) => {
+  mkdirTree(path, mode) {
         var dirs = path.split('/');
         var d = '';
         for (var i = 0; i < dirs.length; ++i) {
@@ -2762,7 +2775,7 @@ function dbg(text) {
           }
         }
       },
-  mkdev:(path, mode, dev) => {
+  mkdev(path, mode, dev) {
         if (typeof dev == 'undefined') {
           dev = mode;
           mode = 438 /* 0666 */;
@@ -2770,7 +2783,7 @@ function dbg(text) {
         mode |= 8192;
         return FS.mknod(path, mode, dev);
       },
-  symlink:(oldpath, newpath) => {
+  symlink(oldpath, newpath) {
         if (!PATH_FS.resolve(oldpath)) {
           throw new FS.ErrnoError(44);
         }
@@ -2789,7 +2802,7 @@ function dbg(text) {
         }
         return parent.node_ops.symlink(parent, newname, oldpath);
       },
-  rename:(old_path, new_path) => {
+  rename(old_path, new_path) {
         var old_dirname = PATH.dirname(old_path);
         var new_dirname = PATH.dirname(new_path);
         var old_name = PATH.basename(old_path);
@@ -2871,7 +2884,7 @@ function dbg(text) {
           FS.hashAddNode(old_node);
         }
       },
-  rmdir:(path) => {
+  rmdir(path) {
         var lookup = FS.lookupPath(path, { parent: true });
         var parent = lookup.node;
         var name = PATH.basename(path);
@@ -2889,7 +2902,7 @@ function dbg(text) {
         parent.node_ops.rmdir(parent, name);
         FS.destroyNode(node);
       },
-  readdir:(path) => {
+  readdir(path) {
         var lookup = FS.lookupPath(path, { follow: true });
         var node = lookup.node;
         if (!node.node_ops.readdir) {
@@ -2897,7 +2910,7 @@ function dbg(text) {
         }
         return node.node_ops.readdir(node);
       },
-  unlink:(path) => {
+  unlink(path) {
         var lookup = FS.lookupPath(path, { parent: true });
         var parent = lookup.node;
         if (!parent) {
@@ -2921,7 +2934,7 @@ function dbg(text) {
         parent.node_ops.unlink(parent, name);
         FS.destroyNode(node);
       },
-  readlink:(path) => {
+  readlink(path) {
         var lookup = FS.lookupPath(path);
         var link = lookup.node;
         if (!link) {
@@ -2932,7 +2945,7 @@ function dbg(text) {
         }
         return PATH_FS.resolve(FS.getPath(link.parent), link.node_ops.readlink(link));
       },
-  stat:(path, dontFollow) => {
+  stat(path, dontFollow) {
         var lookup = FS.lookupPath(path, { follow: !dontFollow });
         var node = lookup.node;
         if (!node) {
@@ -2943,10 +2956,10 @@ function dbg(text) {
         }
         return node.node_ops.getattr(node);
       },
-  lstat:(path) => {
+  lstat(path) {
         return FS.stat(path, true);
       },
-  chmod:(path, mode, dontFollow) => {
+  chmod(path, mode, dontFollow) {
         var node;
         if (typeof path == 'string') {
           var lookup = FS.lookupPath(path, { follow: !dontFollow });
@@ -2962,14 +2975,14 @@ function dbg(text) {
           timestamp: Date.now()
         });
       },
-  lchmod:(path, mode) => {
+  lchmod(path, mode) {
         FS.chmod(path, mode, true);
       },
-  fchmod:(fd, mode) => {
+  fchmod(fd, mode) {
         var stream = FS.getStreamChecked(fd);
         FS.chmod(stream.node, mode);
       },
-  chown:(path, uid, gid, dontFollow) => {
+  chown(path, uid, gid, dontFollow) {
         var node;
         if (typeof path == 'string') {
           var lookup = FS.lookupPath(path, { follow: !dontFollow });
@@ -2985,14 +2998,14 @@ function dbg(text) {
           // we ignore the uid / gid for now
         });
       },
-  lchown:(path, uid, gid) => {
+  lchown(path, uid, gid) {
         FS.chown(path, uid, gid, true);
       },
-  fchown:(fd, uid, gid) => {
+  fchown(fd, uid, gid) {
         var stream = FS.getStreamChecked(fd);
         FS.chown(stream.node, uid, gid);
       },
-  truncate:(path, len) => {
+  truncate(path, len) {
         if (len < 0) {
           throw new FS.ErrnoError(28);
         }
@@ -3021,21 +3034,21 @@ function dbg(text) {
           timestamp: Date.now()
         });
       },
-  ftruncate:(fd, len) => {
+  ftruncate(fd, len) {
         var stream = FS.getStreamChecked(fd);
         if ((stream.flags & 2097155) === 0) {
           throw new FS.ErrnoError(28);
         }
         FS.truncate(stream.node, len);
       },
-  utime:(path, atime, mtime) => {
+  utime(path, atime, mtime) {
         var lookup = FS.lookupPath(path, { follow: true });
         var node = lookup.node;
         node.node_ops.setattr(node, {
           timestamp: Math.max(atime, mtime)
         });
       },
-  open:(path, flags, mode) => {
+  open(path, flags, mode) {
         if (path === "") {
           throw new FS.ErrnoError(44);
         }
@@ -3125,7 +3138,7 @@ function dbg(text) {
         }
         return stream;
       },
-  close:(stream) => {
+  close(stream) {
         if (FS.isClosed(stream)) {
           throw new FS.ErrnoError(8);
         }
@@ -3141,10 +3154,10 @@ function dbg(text) {
         }
         stream.fd = null;
       },
-  isClosed:(stream) => {
+  isClosed(stream) {
         return stream.fd === null;
       },
-  llseek:(stream, offset, whence) => {
+  llseek(stream, offset, whence) {
         if (FS.isClosed(stream)) {
           throw new FS.ErrnoError(8);
         }
@@ -3158,7 +3171,7 @@ function dbg(text) {
         stream.ungotten = [];
         return stream.position;
       },
-  read:(stream, buffer, offset, length, position) => {
+  read(stream, buffer, offset, length, position) {
         assert(offset >= 0);
         if (length < 0 || position < 0) {
           throw new FS.ErrnoError(28);
@@ -3185,7 +3198,7 @@ function dbg(text) {
         if (!seeking) stream.position += bytesRead;
         return bytesRead;
       },
-  write:(stream, buffer, offset, length, position, canOwn) => {
+  write(stream, buffer, offset, length, position, canOwn) {
         assert(offset >= 0);
         if (length < 0 || position < 0) {
           throw new FS.ErrnoError(28);
@@ -3216,7 +3229,7 @@ function dbg(text) {
         if (!seeking) stream.position += bytesWritten;
         return bytesWritten;
       },
-  allocate:(stream, offset, length) => {
+  allocate(stream, offset, length) {
         if (FS.isClosed(stream)) {
           throw new FS.ErrnoError(8);
         }
@@ -3234,7 +3247,7 @@ function dbg(text) {
         }
         stream.stream_ops.allocate(stream, offset, length);
       },
-  mmap:(stream, length, position, prot, flags) => {
+  mmap(stream, length, position, prot, flags) {
         // User requests writing to file (prot & PROT_WRITE != 0).
         // Checking if we have permissions to write to the file unless
         // MAP_PRIVATE flag is set. According to POSIX spec it is possible
@@ -3254,7 +3267,7 @@ function dbg(text) {
         }
         return stream.stream_ops.mmap(stream, length, position, prot, flags);
       },
-  msync:(stream, buffer, offset, length, mmapFlags) => {
+  msync(stream, buffer, offset, length, mmapFlags) {
         assert(offset >= 0);
         if (!stream.stream_ops.msync) {
           return 0;
@@ -3262,13 +3275,13 @@ function dbg(text) {
         return stream.stream_ops.msync(stream, buffer, offset, length, mmapFlags);
       },
   munmap:(stream) => 0,
-  ioctl:(stream, cmd, arg) => {
+  ioctl(stream, cmd, arg) {
         if (!stream.stream_ops.ioctl) {
           throw new FS.ErrnoError(59);
         }
         return stream.stream_ops.ioctl(stream, cmd, arg);
       },
-  readFile:(path, opts = {}) => {
+  readFile(path, opts = {}) {
         opts.flags = opts.flags || 0;
         opts.encoding = opts.encoding || 'binary';
         if (opts.encoding !== 'utf8' && opts.encoding !== 'binary') {
@@ -3288,7 +3301,7 @@ function dbg(text) {
         FS.close(stream);
         return ret;
       },
-  writeFile:(path, data, opts = {}) => {
+  writeFile(path, data, opts = {}) {
         opts.flags = opts.flags || 577;
         var stream = FS.open(path, opts.flags, opts.mode);
         if (typeof data == 'string') {
@@ -3303,7 +3316,7 @@ function dbg(text) {
         FS.close(stream);
       },
   cwd:() => FS.currentPath,
-  chdir:(path) => {
+  chdir(path) {
         var lookup = FS.lookupPath(path, { follow: true });
         if (lookup.node === null) {
           throw new FS.ErrnoError(44);
@@ -3317,12 +3330,12 @@ function dbg(text) {
         }
         FS.currentPath = lookup.path;
       },
-  createDefaultDirectories:() => {
+  createDefaultDirectories() {
         FS.mkdir('/tmp');
         FS.mkdir('/home');
         FS.mkdir('/home/web_user');
       },
-  createDefaultDevices:() => {
+  createDefaultDevices() {
         // create /dev
         FS.mkdir('/dev');
         // setup /dev/null
@@ -3354,17 +3367,17 @@ function dbg(text) {
         FS.mkdir('/dev/shm');
         FS.mkdir('/dev/shm/tmp');
       },
-  createSpecialDirectories:() => {
+  createSpecialDirectories() {
         // create /proc/self/fd which allows /proc/self/fd/6 => readlink gives the
         // name of the stream for fd 6 (see test_unistd_ttyname)
         FS.mkdir('/proc');
         var proc_self = FS.mkdir('/proc/self');
         FS.mkdir('/proc/self/fd');
         FS.mount({
-          mount: () => {
+          mount() {
             var node = FS.createNode(proc_self, 'fd', 16384 | 511 /* 0777 */, 73);
             node.node_ops = {
-              lookup: (parent, name) => {
+              lookup(parent, name) {
                 var fd = +name;
                 var stream = FS.getStreamChecked(fd);
                 var ret = {
@@ -3380,7 +3393,7 @@ function dbg(text) {
           }
         }, {}, '/proc/self/fd');
       },
-  createStandardStreams:() => {
+  createStandardStreams() {
         // TODO deprecate the old functionality of a single
         // input / output callback and that utilizes FS.createDevice
         // and instead require a unique set of stream ops
@@ -3413,7 +3426,7 @@ function dbg(text) {
         assert(stdout.fd === 1, `invalid handle for stdout (${stdout.fd})`);
         assert(stderr.fd === 2, `invalid handle for stderr (${stderr.fd})`);
       },
-  ensureErrnoError:() => {
+  ensureErrnoError() {
         if (FS.ErrnoError) return;
         FS.ErrnoError = /** @this{Object} */ function ErrnoError(errno, node) {
           // We set the `name` property to be able to identify `FS.ErrnoError`
@@ -3452,7 +3465,7 @@ function dbg(text) {
           FS.genericErrors[code].stack = '<generic error, no stack>';
         });
       },
-  staticInit:() => {
+  staticInit() {
         FS.ensureErrnoError();
   
         FS.nameTable = new Array(4096);
@@ -3467,7 +3480,7 @@ function dbg(text) {
           'MEMFS': MEMFS,
         };
       },
-  init:(input, output, error) => {
+  init(input, output, error) {
         assert(!FS.init.initialized, 'FS.init was previously called. If you want to initialize later with custom parameters, remove any earlier calls (note that one is automatically added to the generated code)');
         FS.init.initialized = true;
   
@@ -3480,7 +3493,7 @@ function dbg(text) {
   
         FS.createStandardStreams();
       },
-  quit:() => {
+  quit() {
         FS.init.initialized = false;
         // force-flush all streams, so we get musl std streams printed out
         _fflush(0);
@@ -3493,14 +3506,14 @@ function dbg(text) {
           FS.close(stream);
         }
       },
-  findObject:(path, dontResolveLastLink) => {
+  findObject(path, dontResolveLastLink) {
         var ret = FS.analyzePath(path, dontResolveLastLink);
         if (!ret.exists) {
           return null;
         }
         return ret.object;
       },
-  analyzePath:(path, dontResolveLastLink) => {
+  analyzePath(path, dontResolveLastLink) {
         // operate from within the context of the symlink's target
         try {
           var lookup = FS.lookupPath(path, { follow: !dontResolveLastLink });
@@ -3528,7 +3541,7 @@ function dbg(text) {
         };
         return ret;
       },
-  createPath:(parent, path, canRead, canWrite) => {
+  createPath(parent, path, canRead, canWrite) {
         parent = typeof parent == 'string' ? parent : FS.getPath(parent);
         var parts = path.split('/').reverse();
         while (parts.length) {
@@ -3544,12 +3557,12 @@ function dbg(text) {
         }
         return current;
       },
-  createFile:(parent, name, properties, canRead, canWrite) => {
+  createFile(parent, name, properties, canRead, canWrite) {
         var path = PATH.join2(typeof parent == 'string' ? parent : FS.getPath(parent), name);
         var mode = FS_getMode(canRead, canWrite);
         return FS.create(path, mode);
       },
-  createDataFile:(parent, name, data, canRead, canWrite, canOwn) => {
+  createDataFile(parent, name, data, canRead, canWrite, canOwn) {
         var path = name;
         if (parent) {
           parent = typeof parent == 'string' ? parent : FS.getPath(parent);
@@ -3572,7 +3585,7 @@ function dbg(text) {
         }
         return node;
       },
-  createDevice:(parent, name, input, output) => {
+  createDevice(parent, name, input, output) {
         var path = PATH.join2(typeof parent == 'string' ? parent : FS.getPath(parent), name);
         var mode = FS_getMode(!!input, !!output);
         if (!FS.createDevice.major) FS.createDevice.major = 64;
@@ -3580,16 +3593,16 @@ function dbg(text) {
         // Create a fake device that a set of stream ops to emulate
         // the old behavior.
         FS.registerDevice(dev, {
-          open: (stream) => {
+          open(stream) {
             stream.seekable = false;
           },
-          close: (stream) => {
+          close(stream) {
             // flush any pending line data
             if (output && output.buffer && output.buffer.length) {
               output(10);
             }
           },
-          read: (stream, buffer, offset, length, pos /* ignored */) => {
+          read(stream, buffer, offset, length, pos /* ignored */) {
             var bytesRead = 0;
             for (var i = 0; i < length; i++) {
               var result;
@@ -3610,7 +3623,7 @@ function dbg(text) {
             }
             return bytesRead;
           },
-          write: (stream, buffer, offset, length, pos) => {
+          write(stream, buffer, offset, length, pos) {
             for (var i = 0; i < length; i++) {
               try {
                 output(buffer[offset+i]);
@@ -3626,7 +3639,7 @@ function dbg(text) {
         });
         return FS.mkdev(path, mode, dev);
       },
-  forceLoadFile:(obj) => {
+  forceLoadFile(obj) {
         if (obj.isDevice || obj.isFolder || obj.link || obj.contents) return true;
         if (typeof XMLHttpRequest != 'undefined') {
           throw new Error("Lazy loading should have been performed (contents set) in createLazyFile, but it was not. Lazy loading only works in web workers. Use --embed-file or --preload-file in emcc on the main thread.");
@@ -3644,7 +3657,7 @@ function dbg(text) {
           throw new Error('Cannot load without read() or XMLHttpRequest.');
         }
       },
-  createLazyFile:(parent, name, url, canRead, canWrite) => {
+  createLazyFile(parent, name, url, canRead, canWrite) {
         // Lazy chunked Uint8Array (implements get and length from Uint8Array). Actual getting is abstracted away for eventual reuse.
         /** @constructor */
         function LazyUint8Array() {
@@ -3812,22 +3825,22 @@ function dbg(text) {
         node.stream_ops = stream_ops;
         return node;
       },
-  absolutePath:() => {
+  absolutePath() {
         abort('FS.absolutePath has been removed; use PATH_FS.resolve instead');
       },
-  createFolder:() => {
+  createFolder() {
         abort('FS.createFolder has been removed; use FS.mkdir instead');
       },
-  createLink:() => {
+  createLink() {
         abort('FS.createLink has been removed; use FS.symlink instead');
       },
-  joinPath:() => {
+  joinPath() {
         abort('FS.joinPath has been removed; use PATH.join instead');
       },
-  mmapAlloc:() => {
+  mmapAlloc() {
         abort('FS.mmapAlloc has been replaced by the top level function mmapAlloc');
       },
-  standardizePath:() => {
+  standardizePath() {
         abort('FS.standardizePath has been removed; use PATH.normalize instead');
       },
   };
@@ -3854,7 +3867,7 @@ function dbg(text) {
     };
   var SYSCALLS = {
   DEFAULT_POLLMASK:5,
-  calculateAt:function(dirfd, path, allowEmpty) {
+  calculateAt(dirfd, path, allowEmpty) {
         if (PATH.isAbs(path)) {
           return path;
         }
@@ -3874,7 +3887,7 @@ function dbg(text) {
         }
         return PATH.join2(dir, path);
       },
-  doStat:function(func, path, buf) {
+  doStat(func, path, buf) {
         try {
           var stat = func(path);
         } catch (e) {
@@ -3890,22 +3903,22 @@ function dbg(text) {
         HEAP32[(((buf)+(12))>>2)] = stat.uid;
         HEAP32[(((buf)+(16))>>2)] = stat.gid;
         HEAP32[(((buf)+(20))>>2)] = stat.rdev;
-        (tempI64 = [stat.size>>>0,(tempDouble=stat.size,(+(Math.abs(tempDouble))) >= 1.0 ? (tempDouble > 0.0 ? (+(Math.floor((tempDouble)/4294967296.0)))>>>0 : (~~((+(Math.ceil((tempDouble - +(((~~(tempDouble)))>>>0))/4294967296.0)))))>>>0) : 0)], HEAP32[(((buf)+(24))>>2)] = tempI64[0],HEAP32[(((buf)+(28))>>2)] = tempI64[1]);
+        HEAP64[(((buf)+(24))>>3)] = BigInt(stat.size);
         HEAP32[(((buf)+(32))>>2)] = 4096;
         HEAP32[(((buf)+(36))>>2)] = stat.blocks;
         var atime = stat.atime.getTime();
         var mtime = stat.mtime.getTime();
         var ctime = stat.ctime.getTime();
-        (tempI64 = [Math.floor(atime / 1000)>>>0,(tempDouble=Math.floor(atime / 1000),(+(Math.abs(tempDouble))) >= 1.0 ? (tempDouble > 0.0 ? (+(Math.floor((tempDouble)/4294967296.0)))>>>0 : (~~((+(Math.ceil((tempDouble - +(((~~(tempDouble)))>>>0))/4294967296.0)))))>>>0) : 0)], HEAP32[(((buf)+(40))>>2)] = tempI64[0],HEAP32[(((buf)+(44))>>2)] = tempI64[1]);
+        HEAP64[(((buf)+(40))>>3)] = BigInt(Math.floor(atime / 1000));
         HEAPU32[(((buf)+(48))>>2)] = (atime % 1000) * 1000;
-        (tempI64 = [Math.floor(mtime / 1000)>>>0,(tempDouble=Math.floor(mtime / 1000),(+(Math.abs(tempDouble))) >= 1.0 ? (tempDouble > 0.0 ? (+(Math.floor((tempDouble)/4294967296.0)))>>>0 : (~~((+(Math.ceil((tempDouble - +(((~~(tempDouble)))>>>0))/4294967296.0)))))>>>0) : 0)], HEAP32[(((buf)+(56))>>2)] = tempI64[0],HEAP32[(((buf)+(60))>>2)] = tempI64[1]);
+        HEAP64[(((buf)+(56))>>3)] = BigInt(Math.floor(mtime / 1000));
         HEAPU32[(((buf)+(64))>>2)] = (mtime % 1000) * 1000;
-        (tempI64 = [Math.floor(ctime / 1000)>>>0,(tempDouble=Math.floor(ctime / 1000),(+(Math.abs(tempDouble))) >= 1.0 ? (tempDouble > 0.0 ? (+(Math.floor((tempDouble)/4294967296.0)))>>>0 : (~~((+(Math.ceil((tempDouble - +(((~~(tempDouble)))>>>0))/4294967296.0)))))>>>0) : 0)], HEAP32[(((buf)+(72))>>2)] = tempI64[0],HEAP32[(((buf)+(76))>>2)] = tempI64[1]);
+        HEAP64[(((buf)+(72))>>3)] = BigInt(Math.floor(ctime / 1000));
         HEAPU32[(((buf)+(80))>>2)] = (ctime % 1000) * 1000;
-        (tempI64 = [stat.ino>>>0,(tempDouble=stat.ino,(+(Math.abs(tempDouble))) >= 1.0 ? (tempDouble > 0.0 ? (+(Math.floor((tempDouble)/4294967296.0)))>>>0 : (~~((+(Math.ceil((tempDouble - +(((~~(tempDouble)))>>>0))/4294967296.0)))))>>>0) : 0)], HEAP32[(((buf)+(88))>>2)] = tempI64[0],HEAP32[(((buf)+(92))>>2)] = tempI64[1]);
+        HEAP64[(((buf)+(88))>>3)] = BigInt(stat.ino);
         return 0;
       },
-  doMsync:function(addr, stream, len, flags, offset) {
+  doMsync(addr, stream, len, flags, offset) {
         if (!FS.isFile(stream.node.mode)) {
           throw new FS.ErrnoError(43);
         }
@@ -3919,15 +3932,17 @@ function dbg(text) {
   varargs:undefined,
   get() {
         assert(SYSCALLS.varargs != undefined);
+        // the `+` prepended here is necessary to convince the JSCompiler that varargs is indeed a number.
+        var ret = HEAP32[((+SYSCALLS.varargs)>>2)];
         SYSCALLS.varargs += 4;
-        var ret = HEAP32[(((SYSCALLS.varargs)-(4))>>2)];
         return ret;
       },
+  getp() { return SYSCALLS.get() },
   getStr(ptr) {
         var ret = UTF8ToString(ptr);
         return ret;
       },
-  getStreamFromFD:function(fd) {
+  getStreamFromFD(fd) {
         var stream = FS.getStreamChecked(fd);
         return stream;
       },
@@ -3935,7 +3950,7 @@ function dbg(text) {
   
   function _proc_exit(code) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(1, 1, code);
+    return proxyToMainThread(0, 1, code);
   
       EXITSTATUS = code;
       if (!keepRuntimeAlive()) {
@@ -4008,7 +4023,7 @@ function dbg(text) {
   pthreads:{
   },
   nextWorkerID:1,
-  debugInit:function() {
+  debugInit() {
         function pthreadLogPrefix() {
           var t = 0;
           if (runtimeInitialized && typeof _pthread_self != 'undefined'
@@ -4022,7 +4037,7 @@ function dbg(text) {
         var origDbg = dbg;
         dbg = (message) => origDbg(pthreadLogPrefix() + message);
       },
-  init:function() {
+  init() {
         PThread.debugInit();
         if (ENVIRONMENT_IS_PTHREAD
           ) {
@@ -4031,7 +4046,7 @@ function dbg(text) {
           PThread.initMainThread();
         }
       },
-  initMainThread:function() {
+  initMainThread() {
         // MINIMAL_RUNTIME takes care of calling loadWasmModuleToAllWorkers
         // in postamble_minimal.js
         addOnPreRun(() => {
@@ -4039,7 +4054,12 @@ function dbg(text) {
           PThread.loadWasmModuleToAllWorkers(() => removeRunDependency('loading-workers'));
         });
       },
-  initWorker:function() {
+  initWorker() {
+        // worker.js is not compiled together with us, and must access certain
+        // things.
+        PThread['receiveObjectTransfer'] = PThread.receiveObjectTransfer;
+        PThread['threadInitTLS'] = PThread.threadInitTLS;
+        PThread['setExitStatus'] = PThread.setExitStatus;
   
         // The default behaviour for pthreads is always to exit once they return
         // from their entry point (or call pthread_exit).  If we set noExitRuntime
@@ -4050,11 +4070,11 @@ function dbg(text) {
         // their main function.  See comment in src/worker.js for more.
         noExitRuntime = false;
       },
-  setExitStatus:function(status) {
+  setExitStatus:(status) => {
         EXITSTATUS = status;
       },
   terminateAllThreads__deps:["$terminateWorker"],
-  terminateAllThreads:function() {
+  terminateAllThreads:() => {
         assert(!ENVIRONMENT_IS_PTHREAD, 'Internal Error! terminateAllThreads() can only ever be called from main application thread!');
         // Attempt to kill all workers.  Sadly (at least on the web) there is no
         // way to terminate a worker synchronously, or to be notified when a
@@ -4072,7 +4092,7 @@ function dbg(text) {
         PThread.runningWorkers = [];
         PThread.pthreads = [];
       },
-  returnWorkerToPool:function(worker) {
+  returnWorkerToPool:(worker) => {
         // We don't want to run main thread queued calls here, since we are doing
         // some operations that leave the worker queue in an invalid state until
         // we are completely done (it would be bad if free() ends up calling a
@@ -4094,9 +4114,9 @@ function dbg(text) {
         // linear memory.
         __emscripten_thread_free_data(pthread_ptr);
       },
-  receiveObjectTransfer:function(data) {
+  receiveObjectTransfer(data) {
       },
-  threadInitTLS:function() {
+  threadInitTLS() {
         // Call thread init functions (these are the _emscripten_tls_init for each
         // module loaded.
         PThread.tlsInitFunctions.forEach((f) => f());
@@ -4106,13 +4126,14 @@ function dbg(text) {
           var d = e['data'];
           var cmd = d['cmd'];
   
-          // If this message is intended to a recipient that is not the main thread, forward it to the target thread.
+          // If this message is intended to a recipient that is not the main
+          // thread, forward it to the target thread.
           if (d['targetThread'] && d['targetThread'] != _pthread_self()) {
-            var targetWorker = PThread.pthreads[d.targetThread];
+            var targetWorker = PThread.pthreads[d['targetThread']];
             if (targetWorker) {
               targetWorker.postMessage(d, d['transferList']);
             } else {
-              err('Internal error! Worker sent a message "' + cmd + '" to target pthread ' + d['targetThread'] + ', but that thread no longer exists!');
+              err(`Internal error! Worker sent a message "${cmd}" to target pthread ${d['targetThread']}, but that thread no longer exists!`);
             }
             return;
           }
@@ -4131,7 +4152,7 @@ function dbg(text) {
             worker.loaded = true;
             onFinishedLoading(worker);
           } else if (cmd === 'alert') {
-            alert('Thread ' + d['threadId'] + ': ' + d['text']);
+            alert(`Thread ${d['threadId']}: ${d['text']}`);
           } else if (d.target === 'setimmediate') {
             // Worker wants to postMessage() to itself to implement setImmediate()
             // emulation.
@@ -4142,26 +4163,22 @@ function dbg(text) {
             // The received message looks like something that should be handled by this message
             // handler, (since there is a e.data.cmd field present), but is not one of the
             // recognized commands:
-            err("worker sent an unknown command " + cmd);
+            err(`worker sent an unknown command ${cmd}`);
           }
         };
   
         worker.onerror = (e) => {
           var message = 'worker sent an error!';
           if (worker.pthread_ptr) {
-            message = 'Pthread ' + ptrToString(worker.pthread_ptr) + ' sent an error!';
+            message = `Pthread ${ptrToString(worker.pthread_ptr)} sent an error!`;
           }
-          err(message + ' ' + e.filename + ':' + e.lineno + ': ' + e.message);
+          err(`${message} ${e.filename}:${e.lineno}: ${e.message}`);
           throw e;
         };
   
         if (ENVIRONMENT_IS_NODE) {
-          worker.on('message', function(data) {
-            worker.onmessage({ data: data });
-          });
-          worker.on('error', function(e) {
-            worker.onerror(e);
-          });
+          worker.on('message', (data) => worker.onmessage({ data: data }));
+          worker.on('error', (e) => worker.onerror(e));
         }
   
         assert(wasmMemory instanceof WebAssembly.Memory, 'WebAssembly memory should have been loaded by now!');
@@ -4194,26 +4211,30 @@ function dbg(text) {
           // object in Module['mainScriptUrlOrBlob'], or a URL to it, so that pthread Workers can
           // independently load up the same main application file.
           'urlOrBlob': Module['mainScriptUrlOrBlob']
-          || _scriptDir
           ,
           'wasmMemory': wasmMemory,
           'wasmModule': wasmModule,
           'workerID': worker.workerID,
         });
       }),
-  loadWasmModuleToAllWorkers:function(onMaybeReady) {
+  loadWasmModuleToAllWorkers(onMaybeReady) {
         onMaybeReady();
       },
-  allocateUnusedWorker:function() {
+  allocateUnusedWorker() {
         var worker;
+        // If we're using module output and there's no explicit override, use bundler-friendly pattern.
+        if (!Module['locateFile']) {
+          worker = new Worker(new URL('talvos-wasm.worker.js', import.meta.url));
+        } else {
         // Allow HTML module to configure the location where the 'worker.js' file will be loaded from,
         // via Module.locateFile() function. If not specified, then the default URL 'worker.js' relative
         // to the main html file is loaded.
         var pthreadMainJs = locateFile('talvos-wasm.worker.js');
         worker = new Worker(pthreadMainJs);
+      }
       PThread.unusedWorkers.push(worker);
       },
-  getNewWorker:function() {
+  getNewWorker() {
         if (PThread.unusedWorkers.length == 0) {
   // PTHREAD_POOL_SIZE_STRICT should show a warning and, if set to level `2`, return from the function.
   // However, if we're in Node.js, then we can create new workers on the fly and PTHREAD_POOL_SIZE_STRICT
@@ -4241,28 +4262,27 @@ function dbg(text) {
     };
 
   
-  function getCppExceptionTag() {
+  var getCppExceptionTag = () =>
       // In static linking, tags are defined within the wasm module and are
       // exported, whereas in dynamic linking, tags are defined in library.js in
       // JS code and wasm modules import them.
-      return wasmExports['__cpp_exception'];
-    }
+      wasmExports['__cpp_exception'];
   
-  function getCppExceptionThrownObjectFromWebAssemblyException(ex) {
+  var getCppExceptionThrownObjectFromWebAssemblyException = (ex) => {
       // In Wasm EH, the value extracted from WebAssembly.Exception is a pointer
       // to the unwind header. Convert it to the actual thrown value.
       var unwind_header = ex.getArg(getCppExceptionTag(), 0);
       return ___thrown_object_from_unwind_exception(unwind_header);
-    }
-  function decrementExceptionRefcount(ex) {
+    };
+  var decrementExceptionRefcount = (ex) => {
       var ptr = getCppExceptionThrownObjectFromWebAssemblyException(ex);
       ___cxa_decrement_exception_refcount(ptr);
-    }
+    };
 
-  function establishStackSpace() {
+  var establishStackSpace = () => {
       var pthread_ptr = _pthread_self();
-      var stackHigh = HEAP32[(((pthread_ptr)+(52))>>2)];
-      var stackSize = HEAP32[(((pthread_ptr)+(56))>>2)];
+      var stackHigh = HEAPU32[(((pthread_ptr)+(52))>>2)];
+      var stackSize = HEAPU32[(((pthread_ptr)+(56))>>2)];
       var stackLow = stackHigh - stackSize;
       assert(stackHigh != 0);
       assert(stackLow != 0);
@@ -4277,7 +4297,7 @@ function dbg(text) {
       // Write the stack cookie last, after we have set up the proper bounds and
       // current position of the stack.
       writeStackCookie();
-    }
+    };
   Module['establishStackSpace'] = establishStackSpace;
 
   
@@ -4285,7 +4305,7 @@ function dbg(text) {
   
   function exitOnMainThread(returnCode) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(2, 0, returnCode);
+    return proxyToMainThread(1, 0, returnCode);
   
       _exit(returnCode);
     
@@ -4317,10 +4337,10 @@ function dbg(text) {
       }
       return [type, message];
     });
-  function getExceptionMessage(ex) {
+  var getExceptionMessage = (ex) => {
       var ptr = getCppExceptionThrownObjectFromWebAssemblyException(ex);
       return getExceptionMessageCommon(ptr);
-    }
+    };
   Module['getExceptionMessage'] = getExceptionMessage;
 
   
@@ -4335,7 +4355,7 @@ function dbg(text) {
       case 'i8': return HEAP8[((ptr)>>0)];
       case 'i16': return HEAP16[((ptr)>>1)];
       case 'i32': return HEAP32[((ptr)>>2)];
-      case 'i64': abort('to do getValue(i64) use WASM_BIGINT');
+      case 'i64': return HEAP64[((ptr)>>3)];
       case 'float': return HEAPF32[((ptr)>>2)];
       case 'double': return HEAPF64[((ptr)>>3)];
       case '*': return HEAPU32[((ptr)>>2)];
@@ -4344,14 +4364,16 @@ function dbg(text) {
   }
 
   
-  function incrementExceptionRefcount(ex) {
+  var incrementExceptionRefcount = (ex) => {
       var ptr = getCppExceptionThrownObjectFromWebAssemblyException(ex);
       ___cxa_increment_exception_refcount(ptr);
-    }
+    };
 
   
   
   var wasmTableMirror = [];
+  
+  var wasmTable;
   var getWasmTableEntry = (funcPtr) => {
       var func = wasmTableMirror[funcPtr];
       if (!func) {
@@ -4361,7 +4383,7 @@ function dbg(text) {
       assert(wasmTable.get(funcPtr) == func, "JavaScript-side Wasm function table mirror is out of date!");
       return func;
     };
-  function invokeEntryPoint(ptr, arg) {
+  var invokeEntryPoint = (ptr, arg) => {
   
       // pthread entry points are always of signature 'void *ThreadMain(void *arg)'
       // Native codebases sometimes spawn threads with other thread entry point
@@ -4382,13 +4404,13 @@ function dbg(text) {
         }
       }
       finish(result);
-    }
+    };
   Module['invokeEntryPoint'] = invokeEntryPoint;
 
 
-  function registerTLSInit(tlsInitFunc) {
+  var registerTLSInit = (tlsInitFunc) => {
       PThread.tlsInitFunctions.push(tlsInitFunc);
-    }
+    };
 
   
     /**
@@ -4403,7 +4425,7 @@ function dbg(text) {
       case 'i8': HEAP8[((ptr)>>0)] = value; break;
       case 'i16': HEAP16[((ptr)>>1)] = value; break;
       case 'i32': HEAP32[((ptr)>>2)] = value; break;
-      case 'i64': abort('to do setValue(i64) use WASM_BIGINT');
+      case 'i64': HEAP64[((ptr)>>3)] = BigInt(value); break;
       case 'float': HEAPF32[((ptr)>>2)] = value; break;
       case 'double': HEAPF64[((ptr)>>3)] = value; break;
       case '*': HEAPU32[((ptr)>>2)] = value; break;
@@ -4424,22 +4446,22 @@ function dbg(text) {
       abort(`Assertion failed: ${UTF8ToString(condition)}, at: ` + [filename ? UTF8ToString(filename) : 'unknown filename', line, func ? UTF8ToString(func) : 'unknown function']);
     };
 
-  function ___emscripten_init_main_thread_js(tb) {
+  var ___emscripten_init_main_thread_js = (tb) => {
       // Pass the thread address to the native code where they stored in wasm
       // globals which act as a form of TLS. Global constructors trying
       // to access this value will read the wrong value, but that is UB anyway.
       __emscripten_thread_init(
         tb,
-        /*isMainBrowserThread=*/!ENVIRONMENT_IS_WORKER,
-        /*isMainRuntimeThread=*/1,
-        /*canBlock=*/!ENVIRONMENT_IS_WEB,
-        65536,
+        /*is_main=*/!ENVIRONMENT_IS_WORKER,
+        /*is_runtime=*/1,
+        /*can_block=*/!ENVIRONMENT_IS_WEB,
+        /*default_stacksize=*/65536,
         /*start_profiling=*/false,
       );
       PThread.threadInitTLS();
-    }
+    };
 
-  function ___emscripten_thread_cleanup(thread) {
+  var ___emscripten_thread_cleanup = (thread) => {
       // Called when a thread needs to be cleaned up so it can be reused.
       // A thread is considered reusable when it either returns from its
       // entry point, calls pthread_exit, or acts upon a cancellation.
@@ -4447,7 +4469,7 @@ function dbg(text) {
       // otherwise pthread_join is responsible for calling this.
       if (!ENVIRONMENT_IS_PTHREAD) cleanupThread(thread);
       else postMessage({ 'cmd': 'cleanupThread', 'thread': thread });
-    }
+    };
 
   var setErrNo = (value) => {
       HEAP32[((___errno_location())>>2)] = value;
@@ -4457,7 +4479,7 @@ function dbg(text) {
   
   function ___syscall_fcntl64(fd, cmd, varargs) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(3, 1, fd, cmd, varargs);
+    return proxyToMainThread(2, 1, fd, cmd, varargs);
   
   SYSCALLS.varargs = varargs;
   try {
@@ -4468,6 +4490,9 @@ function dbg(text) {
           var arg = SYSCALLS.get();
           if (arg < 0) {
             return -28;
+          }
+          while (FS.streams[arg]) {
+            arg++;
           }
           var newStream;
           newStream = FS.createStream(stream, arg);
@@ -4484,7 +4509,7 @@ function dbg(text) {
           return 0;
         }
         case 5: {
-          var arg = SYSCALLS.get();
+          var arg = SYSCALLS.getp();
           var offset = 0;
           // We're always unlocked.
           HEAP16[(((arg)+(offset))>>1)] = 2;
@@ -4515,7 +4540,7 @@ function dbg(text) {
   
   function ___syscall_ioctl(fd, op, varargs) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(4, 1, fd, op, varargs);
+    return proxyToMainThread(3, 1, fd, op, varargs);
   
   SYSCALLS.varargs = varargs;
   try {
@@ -4530,7 +4555,7 @@ function dbg(text) {
           if (!stream.tty) return -59;
           if (stream.tty.ops.ioctl_tcgets) {
             var termios = stream.tty.ops.ioctl_tcgets(stream);
-            var argp = SYSCALLS.get();
+            var argp = SYSCALLS.getp();
             HEAP32[((argp)>>2)] = termios.c_iflag || 0;
             HEAP32[(((argp)+(4))>>2)] = termios.c_oflag || 0;
             HEAP32[(((argp)+(8))>>2)] = termios.c_cflag || 0;
@@ -4553,7 +4578,7 @@ function dbg(text) {
         case 21508: {
           if (!stream.tty) return -59;
           if (stream.tty.ops.ioctl_tcsets) {
-            var argp = SYSCALLS.get();
+            var argp = SYSCALLS.getp();
             var c_iflag = HEAP32[((argp)>>2)];
             var c_oflag = HEAP32[(((argp)+(4))>>2)];
             var c_cflag = HEAP32[(((argp)+(8))>>2)];
@@ -4568,7 +4593,7 @@ function dbg(text) {
         }
         case 21519: {
           if (!stream.tty) return -59;
-          var argp = SYSCALLS.get();
+          var argp = SYSCALLS.getp();
           HEAP32[((argp)>>2)] = 0;
           return 0;
         }
@@ -4577,7 +4602,7 @@ function dbg(text) {
           return -28; // not supported
         }
         case 21531: {
-          var argp = SYSCALLS.get();
+          var argp = SYSCALLS.getp();
           return FS.ioctl(stream, op, argp);
         }
         case 21523: {
@@ -4586,7 +4611,7 @@ function dbg(text) {
           if (!stream.tty) return -59;
           if (stream.tty.ops.ioctl_tiocgwinsz) {
             var winsize = stream.tty.ops.ioctl_tiocgwinsz(stream.tty);
-            var argp = SYSCALLS.get();
+            var argp = SYSCALLS.getp();
             HEAP16[((argp)>>1)] = winsize[0];
             HEAP16[(((argp)+(2))>>1)] = winsize[1];
           }
@@ -4616,7 +4641,7 @@ function dbg(text) {
   
   function ___syscall_openat(dirfd, path, flags, varargs) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(5, 1, dirfd, path, flags, varargs);
+    return proxyToMainThread(4, 1, dirfd, path, flags, varargs);
   
   SYSCALLS.varargs = varargs;
   try {
@@ -4634,7 +4659,7 @@ function dbg(text) {
   
 
   
-  function ___throw_exception_with_stack_trace(ex) {
+  var ___throw_exception_with_stack_trace = (ex) => {
       var e = new WebAssembly.Exception(getCppExceptionTag(), [ex], {traceStack: true});
       e.message = getExceptionMessage(e);
       // The generated stack trace will be in the form of:
@@ -4652,7 +4677,7 @@ function dbg(text) {
         e.stack = arr.join('\n');
       }
       throw e;
-    }
+    };
 
   var nowIsMonotonic = true;;
   var __emscripten_get_now_is_monotonic = () => nowIsMonotonic;
@@ -4685,19 +4710,19 @@ function dbg(text) {
     };
   
   
-  function __emscripten_thread_mailbox_await(pthread_ptr) {
+  var __emscripten_thread_mailbox_await = (pthread_ptr) => {
       if (typeof Atomics.waitAsync === 'function') {
         // TODO: How to make this work with wasm64?
-        var wait = Atomics.waitAsync(HEAP32, pthread_ptr >> 2, pthread_ptr);
+        var wait = Atomics.waitAsync(HEAP32, ((pthread_ptr)>>2), pthread_ptr);
         assert(wait.async);
         wait.value.then(checkMailbox);
         var waitingAsync = pthread_ptr + 128;
-        Atomics.store(HEAP32, waitingAsync >> 2, 1);
+        Atomics.store(HEAP32, ((waitingAsync)>>2), 1);
       }
-    }
+    };
   Module['__emscripten_thread_mailbox_await'] = __emscripten_thread_mailbox_await;
   
-  var checkMailbox = function() {
+  var checkMailbox = () => {
       // Only check the mailbox if we have a live pthread runtime. We implement
       // pthread_self to return 0 if there is no live runtime.
       var pthread_ptr = _pthread_self();
@@ -4710,9 +4735,7 @@ function dbg(text) {
     };
   Module['checkMailbox'] = checkMailbox;
   
-  var __emscripten_notify_mailbox_postmessage = function(targetThreadId,
-                                                     currThreadId,
-                                                     mainThreadId) {
+  var __emscripten_notify_mailbox_postmessage = (targetThreadId, currThreadId, mainThreadId) => {
       if (targetThreadId == currThreadId) {
         setTimeout(() => checkMailbox());
       } else if (ENVIRONMENT_IS_PTHREAD) {
@@ -4720,20 +4743,82 @@ function dbg(text) {
       } else {
         var worker = PThread.pthreads[targetThreadId];
         if (!worker) {
-          err('Cannot send message to thread with ID ' + targetThreadId + ', unknown thread ID!');
+          err(`Cannot send message to thread with ID ${targetThreadId}, unknown thread ID!`);
           return;
         }
         worker.postMessage({'cmd' : 'checkMailbox'});
       }
     };
 
-  function __emscripten_set_offscreencanvas_size(target, width, height) {
-      err('emscripten_set_offscreencanvas_size: Build with -sOFFSCREENCANVAS_SUPPORT=1 to enable transferring canvases to pthreads.');
-      return -1;
-    }
+  
+  
+  /** @type{function(number, (number|boolean), ...(number|boolean))} */
+  var proxyToMainThread = function(index, sync) {
+      // Additional arguments are passed after those two, which are the actual
+      // function arguments.
+      // The serialization buffer contains the number of call params, and then
+      // all the args here.
+      // We also pass 'sync' to C separately, since C needs to look at it.
+      var numCallArgs = arguments.length - 2;
+      var outerArgs = arguments;
+      // Allocate a buffer, which will be copied by the C code.
+      return withStackSave(() => {
+        // First passed parameter specifies the number of arguments to the function.
+        // When BigInt support is enabled, we must handle types in a more complex
+        // way, detecting at runtime if a value is a BigInt or not (as we have no
+        // type info here). To do that, add a "prefix" before each value that
+        // indicates if it is a BigInt, which effectively doubles the number of
+        // values we serialize for proxying. TODO: pack this?
+        var serializedNumCallArgs = numCallArgs * 2;
+        var args = stackAlloc(serializedNumCallArgs * 8);
+        var b = ((args)>>3);
+        for (var i = 0; i < numCallArgs; i++) {
+          var arg = outerArgs[2 + i];
+          if (typeof arg == 'bigint') {
+            // The prefix is non-zero to indicate a bigint.
+            HEAP64[b + 2*i] = 1n;
+            HEAP64[b + 2*i + 1] = arg;
+          } else {
+            // The prefix is zero to indicate a JS Number.
+            HEAP64[b + 2*i] = 0n;
+            HEAPF64[b + 2*i + 1] = arg;
+          }
+        }
+        return __emscripten_run_on_main_thread_js(index, serializedNumCallArgs, args, sync);
+      });
+    };
+  
+  var proxiedJSCallArgs = [];
+  
+  var __emscripten_receive_on_main_thread_js = (index, callingThread, numCallArgs, args) => {
+      // Sometimes we need to backproxy events to the calling thread (e.g.
+      // HTML5 DOM events handlers such as
+      // emscripten_set_mousemove_callback()), so keep track in a globally
+      // accessible variable about the thread that initiated the proxying.
+      numCallArgs /= 2;
+      proxiedJSCallArgs.length = numCallArgs;
+      var b = ((args)>>3);
+      for (var i = 0; i < numCallArgs; i++) {
+        if (HEAP64[b + 2*i]) {
+          // It's a BigInt.
+          proxiedJSCallArgs[i] = HEAP64[b + 2*i + 1];
+        } else {
+          // It's a Number.
+          proxiedJSCallArgs[i] = HEAPF64[b + 2*i + 1];
+        }
+      }
+      // Proxied JS library funcs are encoded as positive values, and
+      // EM_ASMs as negative values (see include_asm_consts)
+      var func = proxiedFunctionTable[index];
+      assert(func.length == numCallArgs, 'Call args mismatch in _emscripten_receive_on_main_thread_js');
+      PThread.currentProxiedOperationCallerThread = callingThread;
+      var rtn = func.apply(null, proxiedJSCallArgs);
+      PThread.currentProxiedOperationCallerThread = 0;
+      return rtn;
+    };
 
 
-  function __emscripten_thread_set_strongref(thread) {
+  var __emscripten_thread_set_strongref = (thread) => {
       // Called when a thread needs to be strongly referenced.
       // Currently only used for:
       // - keeping the "main" thread alive in PROXY_TO_PTHREAD mode;
@@ -4742,14 +4827,14 @@ function dbg(text) {
       if (ENVIRONMENT_IS_NODE) {
         PThread.pthreads[thread].ref();
       }
-    }
+    };
 
   var _abort = () => {
       abort('native code called abort()');
     };
 
   
-  function _emscripten_check_blocking_allowed() {
+  var _emscripten_check_blocking_allowed = () => {
       if (ENVIRONMENT_IS_NODE) return;
   
       if (ENVIRONMENT_IS_WORKER) return; // Blocking in a worker/pthread is fine.
@@ -4757,11 +4842,9 @@ function dbg(text) {
       warnOnce('Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread');
       abort('Blocking on the main thread is not allowed by default. See https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread');
   
-    }
+    };
 
-  function _emscripten_date_now() {
-      return Date.now();
-    }
+  var _emscripten_date_now = () => Date.now();
 
   var runtimeKeepalivePush = () => {
       runtimeKeepaliveCounter += 1;
@@ -4782,64 +4865,10 @@ function dbg(text) {
       _emscripten_get_now = () => performance.timeOrigin + performance.now();
   ;
 
-  function _emscripten_num_logical_cores() {
+  var _emscripten_num_logical_cores = () => {
       if (ENVIRONMENT_IS_NODE) return require('os').cpus().length;
       return navigator['hardwareConcurrency'];
-    }
-
-  
-  
-  /** @type{function(number, (number|boolean), ...(number|boolean))} */
-  function proxyToMainThread(index, sync) {
-      // Additional arguments are passed after those two, which are the actual
-      // function arguments.
-      // The serialization buffer contains the number of call params, and then
-      // all the args here.
-      // We also pass 'sync' to C separately, since C needs to look at it.
-      var numCallArgs = arguments.length - 2;
-      var outerArgs = arguments;
-      var maxArgs = 19;
-      if (numCallArgs > maxArgs) {
-        throw 'proxyToMainThread: Too many arguments ' + numCallArgs + ' to proxied function idx=' + index + ', maximum supported is ' + maxArgs;
-      }
-      // Allocate a buffer, which will be copied by the C code.
-      return withStackSave(() => {
-        // First passed parameter specifies the number of arguments to the function.
-        // When BigInt support is enabled, we must handle types in a more complex
-        // way, detecting at runtime if a value is a BigInt or not (as we have no
-        // type info here). To do that, add a "prefix" before each value that
-        // indicates if it is a BigInt, which effectively doubles the number of
-        // values we serialize for proxying. TODO: pack this?
-        var serializedNumCallArgs = numCallArgs ;
-        var args = stackAlloc(serializedNumCallArgs * 8);
-        var b = args >> 3;
-        for (var i = 0; i < numCallArgs; i++) {
-          var arg = outerArgs[2 + i];
-          HEAPF64[b + i] = arg;
-        }
-        return __emscripten_run_in_main_runtime_thread_js(index, serializedNumCallArgs, args, sync);
-      });
-    }
-  
-  var emscripten_receive_on_main_thread_js_callArgs = [];
-  
-  function _emscripten_receive_on_main_thread_js(index, callingThread, numCallArgs, args) {
-      // Sometimes we need to backproxy events to the calling thread (e.g.
-      // HTML5 DOM events handlers such as
-      // emscripten_set_mousemove_callback()), so keep track in a globally
-      // accessible variable about the thread that initiated the proxying.
-      PThread.currentProxiedOperationCallerThread = callingThread;
-      emscripten_receive_on_main_thread_js_callArgs.length = numCallArgs;
-      var b = args >> 3;
-      for (var i = 0; i < numCallArgs; i++) {
-        emscripten_receive_on_main_thread_js_callArgs[i] = HEAPF64[b + i];
-      }
-      // Proxied JS library funcs are encoded as positive values, and
-      // EM_ASMs as negative values (see include_asm_consts)
-      var func = proxiedFunctionTable[index];
-      assert(func.length == numCallArgs, 'Call args mismatch in emscripten_receive_on_main_thread_js');
-      return func.apply(null, emscripten_receive_on_main_thread_js_callArgs);
-    }
+    };
 
   
   var abortOnCannotGrowMemory = (requestedSize) => {
@@ -4898,13 +4927,13 @@ function dbg(text) {
       HEAP8[((buffer)>>0)] = 0;
     };
   
-  
-  function _environ_get(__environ, environ_buf) {
+  var _environ_get = 
+  function(__environ, environ_buf) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(6, 1, __environ, environ_buf);
+    return proxyToMainThread(5, 1, __environ, environ_buf);
   
       var bufSize = 0;
-      getEnvStrings().forEach(function(string, i) {
+      getEnvStrings().forEach((string, i) => {
         var ptr = environ_buf + bufSize;
         HEAPU32[(((__environ)+(i*4))>>2)] = ptr;
         stringToAscii(string, ptr);
@@ -4913,31 +4942,29 @@ function dbg(text) {
       return 0;
     
   }
-  
+  ;
 
   
-  
-  function _environ_sizes_get(penviron_count, penviron_buf_size) {
+  var _environ_sizes_get = 
+  function(penviron_count, penviron_buf_size) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(7, 1, penviron_count, penviron_buf_size);
+    return proxyToMainThread(6, 1, penviron_count, penviron_buf_size);
   
       var strings = getEnvStrings();
       HEAPU32[((penviron_count)>>2)] = strings.length;
       var bufSize = 0;
-      strings.forEach(function(string) {
-        bufSize += string.length + 1;
-      });
+      strings.forEach((string) => bufSize += string.length + 1);
       HEAPU32[((penviron_buf_size)>>2)] = bufSize;
       return 0;
     
   }
-  
+  ;
 
 
   
   function _fd_close(fd) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(8, 1, fd);
+    return proxyToMainThread(7, 1, fd);
   
   try {
   
@@ -4955,7 +4982,7 @@ function dbg(text) {
   
   function _fd_fdstat_get(fd, pbuf) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(9, 1, fd, pbuf);
+    return proxyToMainThread(8, 1, fd, pbuf);
   
   try {
   
@@ -4973,8 +5000,8 @@ function dbg(text) {
       }
       HEAP8[((pbuf)>>0)] = type;
       HEAP16[(((pbuf)+(2))>>1)] = flags;
-      (tempI64 = [rightsBase>>>0,(tempDouble=rightsBase,(+(Math.abs(tempDouble))) >= 1.0 ? (tempDouble > 0.0 ? (+(Math.floor((tempDouble)/4294967296.0)))>>>0 : (~~((+(Math.ceil((tempDouble - +(((~~(tempDouble)))>>>0))/4294967296.0)))))>>>0) : 0)], HEAP32[(((pbuf)+(8))>>2)] = tempI64[0],HEAP32[(((pbuf)+(12))>>2)] = tempI64[1]);
-      (tempI64 = [rightsInheriting>>>0,(tempDouble=rightsInheriting,(+(Math.abs(tempDouble))) >= 1.0 ? (tempDouble > 0.0 ? (+(Math.floor((tempDouble)/4294967296.0)))>>>0 : (~~((+(Math.ceil((tempDouble - +(((~~(tempDouble)))>>>0))/4294967296.0)))))>>>0) : 0)], HEAP32[(((pbuf)+(16))>>2)] = tempI64[0],HEAP32[(((pbuf)+(20))>>2)] = tempI64[1]);
+      HEAP64[(((pbuf)+(8))>>3)] = BigInt(rightsBase);
+      HEAP64[(((pbuf)+(16))>>3)] = BigInt(rightsInheriting);
       return 0;
     } catch (e) {
     if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
@@ -4991,7 +5018,7 @@ function dbg(text) {
         var ptr = HEAPU32[((iov)>>2)];
         var len = HEAPU32[(((iov)+(4))>>2)];
         iov += 8;
-        var curr = FS.read(stream, HEAP8,ptr, len, offset);
+        var curr = FS.read(stream, HEAP8, ptr, len, offset);
         if (curr < 0) return -1;
         ret += curr;
         if (curr < len) break; // nothing more to read
@@ -5005,7 +5032,7 @@ function dbg(text) {
   
   function _fd_read(fd, iov, iovcnt, pnum) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(10, 1, fd, iov, iovcnt, pnum);
+    return proxyToMainThread(9, 1, fd, iov, iovcnt, pnum);
   
   try {
   
@@ -5022,17 +5049,18 @@ function dbg(text) {
   
 
   
-  function convertI32PairToI53Checked(lo, hi) {
-      assert(lo == (lo >>> 0) || lo == (lo|0)); // lo should either be a i32 or a u32
-      assert(hi === (hi|0));                    // hi should be a i32
-      return ((hi + 0x200000) >>> 0 < 0x400001 - !!lo) ? (lo >>> 0) + hi * 4294967296 : NaN;
-    }
+  var MAX_INT53 = 9007199254740992;
   
-  function _fd_seek(fd,offset_low, offset_high,whence,newOffset) {
+  var MIN_INT53 = -9007199254740992;
+  var bigintToI53Checked = (num) => {
+      return (num < MIN_INT53 || num > MAX_INT53) ? NaN : Number(num);
+    };
+  
+  function _fd_seek(fd, offset, whence, newOffset) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(11, 1, fd,offset_low, offset_high,whence,newOffset);
+    return proxyToMainThread(10, 1, fd, offset, whence, newOffset);
   
-    var offset = convertI32PairToI53Checked(offset_low, offset_high);;
+    offset = bigintToI53Checked(offset);;
   
     
   try {
@@ -5040,7 +5068,7 @@ function dbg(text) {
       if (isNaN(offset)) return 61;
       var stream = SYSCALLS.getStreamFromFD(fd);
       FS.llseek(stream, offset, whence);
-      (tempI64 = [stream.position>>>0,(tempDouble=stream.position,(+(Math.abs(tempDouble))) >= 1.0 ? (tempDouble > 0.0 ? (+(Math.floor((tempDouble)/4294967296.0)))>>>0 : (~~((+(Math.ceil((tempDouble - +(((~~(tempDouble)))>>>0))/4294967296.0)))))>>>0) : 0)], HEAP32[((newOffset)>>2)] = tempI64[0],HEAP32[(((newOffset)+(4))>>2)] = tempI64[1]);
+      HEAP64[((newOffset)>>3)] = BigInt(stream.position);
       if (stream.getdents && offset === 0 && whence === 0) stream.getdents = null; // reset readdir state
       return 0;
     } catch (e) {
@@ -5059,7 +5087,7 @@ function dbg(text) {
         var ptr = HEAPU32[((iov)>>2)];
         var len = HEAPU32[(((iov)+(4))>>2)];
         iov += 8;
-        var curr = FS.write(stream, HEAP8,ptr, len, offset);
+        var curr = FS.write(stream, HEAP8, ptr, len, offset);
         if (curr < 0) return -1;
         ret += curr;
         if (typeof offset !== 'undefined') {
@@ -5072,7 +5100,7 @@ function dbg(text) {
   
   function _fd_write(fd, iov, iovcnt, pnum) {
   if (ENVIRONMENT_IS_PTHREAD)
-    return proxyToMainThread(12, 1, fd, iov, iovcnt, pnum);
+    return proxyToMainThread(11, 1, fd, iov, iovcnt, pnum);
   
   try {
   
@@ -5143,7 +5171,7 @@ function dbg(text) {
       // size_t strftime(char *restrict s, size_t maxsize, const char *restrict format, const struct tm *restrict timeptr);
       // http://pubs.opengroup.org/onlinepubs/009695399/functions/strftime.html
   
-      var tm_zone = HEAP32[(((tm)+(40))>>2)];
+      var tm_zone = HEAPU32[(((tm)+(40))>>2)];
   
       var date = {
         tm_sec: HEAP32[((tm)>>2)],
@@ -5392,18 +5420,18 @@ function dbg(text) {
       return _strftime(s, maxsize, format, tm); // no locale support yet
     };
 
-  function getCFunc(ident) {
+  var getCFunc = (ident) => {
       var func = Module['_' + ident]; // closure exported function
       assert(func, 'Cannot call unknown function ' + ident + ', make sure it is exported');
       return func;
-    }
+    };
   
   
   
   
   var stringToUTF8 = (str, outPtr, maxBytesToWrite) => {
       assert(typeof maxBytesToWrite == 'number', 'stringToUTF8(str, outPtr, maxBytesToWrite) is missing the third parameter that specifies the length of the output buffer!');
-      return stringToUTF8Array(str, HEAPU8,outPtr, maxBytesToWrite);
+      return stringToUTF8Array(str, HEAPU8, outPtr, maxBytesToWrite);
     };
   var stringToUTF8OnStack = (str) => {
       var size = lengthBytesUTF8(str) + 1;
@@ -5419,7 +5447,7 @@ function dbg(text) {
      * @param {Arguments|Array=} args
      * @param {Object=} opts
      */
-  var ccall = function(ident, returnType, argTypes, args, opts) {
+  var ccall = (ident, returnType, argTypes, args, opts) => {
       // For fast lookup of conversion functions
       var toC = {
         'string': (str) => {
@@ -5476,11 +5504,13 @@ function dbg(text) {
      * @param {Array=} argTypes
      * @param {Object=} opts
      */
-  function cwrap(ident, returnType, argTypes, opts) {
+  var cwrap = (ident, returnType, argTypes, opts) => {
       return function() {
         return ccall(ident, returnType, argTypes, arguments, opts);
       }
-    }
+    };
+
+
 
 
 
@@ -5657,50 +5687,96 @@ ERRNO_CODES = {
       'ESTRPIPE': 135,
     };;
 
- // proxiedFunctionTable specifies the list of functions that can be called either synchronously or asynchronously from other threads in postMessage()d or internally queued events. This way a pthread in a Worker can synchronously access e.g. the DOM on the main thread.
-
-var proxiedFunctionTable = [null,_proc_exit,exitOnMainThread,___syscall_fcntl64,___syscall_ioctl,___syscall_openat,_environ_get,_environ_sizes_get,_fd_close,_fd_fdstat_get,_fd_read,_fd_seek,_fd_write];
+// proxiedFunctionTable specifies the list of functions that can be called
+// either synchronously or asynchronously from other threads in postMessage()d
+// or internally queued events. This way a pthread in a Worker can synchronously
+// access e.g. the DOM on the main thread.
+var proxiedFunctionTable = [
+  _proc_exit,
+  exitOnMainThread,
+  ___syscall_fcntl64,
+  ___syscall_ioctl,
+  ___syscall_openat,
+  _environ_get,
+  _environ_sizes_get,
+  _fd_close,
+  _fd_fdstat_get,
+  _fd_read,
+  _fd_seek,
+  _fd_write
+];
 
 function checkIncomingModuleAPI() {
   ignoredModuleProp('fetchSettings');
 }
 var wasmImports = {
+  /** @export */
   __assert_fail: ___assert_fail,
+  /** @export */
   __emscripten_init_main_thread_js: ___emscripten_init_main_thread_js,
+  /** @export */
   __emscripten_thread_cleanup: ___emscripten_thread_cleanup,
+  /** @export */
   __syscall_fcntl64: ___syscall_fcntl64,
+  /** @export */
   __syscall_ioctl: ___syscall_ioctl,
+  /** @export */
   __syscall_openat: ___syscall_openat,
+  /** @export */
   __throw_exception_with_stack_trace: ___throw_exception_with_stack_trace,
+  /** @export */
   _emscripten_get_now_is_monotonic: __emscripten_get_now_is_monotonic,
+  /** @export */
   _emscripten_notify_mailbox_postmessage: __emscripten_notify_mailbox_postmessage,
-  _emscripten_set_offscreencanvas_size: __emscripten_set_offscreencanvas_size,
+  /** @export */
+  _emscripten_receive_on_main_thread_js: __emscripten_receive_on_main_thread_js,
+  /** @export */
   _emscripten_thread_mailbox_await: __emscripten_thread_mailbox_await,
+  /** @export */
   _emscripten_thread_set_strongref: __emscripten_thread_set_strongref,
+  /** @export */
   abort: _abort,
+  /** @export */
   emscripten_check_blocking_allowed: _emscripten_check_blocking_allowed,
+  /** @export */
   emscripten_date_now: _emscripten_date_now,
+  /** @export */
   emscripten_exit_with_live_runtime: _emscripten_exit_with_live_runtime,
+  /** @export */
   emscripten_get_heap_max: _emscripten_get_heap_max,
+  /** @export */
   emscripten_get_now: _emscripten_get_now,
+  /** @export */
   emscripten_num_logical_cores: _emscripten_num_logical_cores,
-  emscripten_receive_on_main_thread_js: _emscripten_receive_on_main_thread_js,
+  /** @export */
   emscripten_resize_heap: _emscripten_resize_heap,
+  /** @export */
   environ_get: _environ_get,
+  /** @export */
   environ_sizes_get: _environ_sizes_get,
+  /** @export */
   exit: _exit,
+  /** @export */
   fd_close: _fd_close,
+  /** @export */
   fd_fdstat_get: _fd_fdstat_get,
+  /** @export */
   fd_read: _fd_read,
+  /** @export */
   fd_seek: _fd_seek,
+  /** @export */
   fd_write: _fd_write,
+  /** @export */
   memory: wasmMemory || Module['wasmMemory'],
+  /** @export */
   strftime_l: _strftime_l
 };
-var asm = createWasm();
+var wasmExports = createWasm();
 var ___wasm_call_ctors = createExportWrapper('__wasm_call_ctors');
 var _run_wasm = Module['_run_wasm'] = createExportWrapper('run_wasm');
 var _validate_wasm = Module['_validate_wasm'] = createExportWrapper('validate_wasm');
+var _exception = Module['_exception'] = createExportWrapper('exception');
+var _assertion = Module['_assertion'] = createExportWrapper('assertion');
 var __emscripten_tls_init = Module['__emscripten_tls_init'] = createExportWrapper('_emscripten_tls_init');
 var _pthread_self = Module['_pthread_self'] = () => (_pthread_self = Module['_pthread_self'] = wasmExports['pthread_self'])();
 var ___errno_location = createExportWrapper('__errno_location');
@@ -5710,10 +5786,9 @@ var _emscripten_main_thread_process_queued_calls = createExportWrapper('emscript
 var _fflush = Module['_fflush'] = createExportWrapper('fflush');
 var _free = Module['_free'] = createExportWrapper('free');
 var _emscripten_main_runtime_thread_id = createExportWrapper('emscripten_main_runtime_thread_id');
-var __emscripten_run_in_main_runtime_thread_js = createExportWrapper('_emscripten_run_in_main_runtime_thread_js');
-var _emscripten_dispatch_to_thread_ = createExportWrapper('emscripten_dispatch_to_thread_');
 var _emscripten_stack_get_base = () => (_emscripten_stack_get_base = wasmExports['emscripten_stack_get_base'])();
 var _emscripten_stack_get_end = () => (_emscripten_stack_get_end = wasmExports['emscripten_stack_get_end'])();
+var __emscripten_run_on_main_thread_js = createExportWrapper('_emscripten_run_on_main_thread_js');
 var __emscripten_thread_free_data = createExportWrapper('_emscripten_thread_free_data');
 var __emscripten_thread_exit = Module['__emscripten_thread_exit'] = createExportWrapper('_emscripten_thread_exit');
 var __emscripten_check_mailbox = Module['__emscripten_check_mailbox'] = createExportWrapper('_emscripten_check_mailbox');
@@ -5729,11 +5804,6 @@ var ___cxa_decrement_exception_refcount = Module['___cxa_decrement_exception_ref
 var ___cxa_increment_exception_refcount = Module['___cxa_increment_exception_refcount'] = createExportWrapper('__cxa_increment_exception_refcount');
 var ___thrown_object_from_unwind_exception = Module['___thrown_object_from_unwind_exception'] = createExportWrapper('__thrown_object_from_unwind_exception');
 var ___get_exception_message = Module['___get_exception_message'] = createExportWrapper('__get_exception_message');
-var dynCall_jiji = Module['dynCall_jiji'] = createExportWrapper('dynCall_jiji');
-var dynCall_viijii = Module['dynCall_viijii'] = createExportWrapper('dynCall_viijii');
-var dynCall_iiiiij = Module['dynCall_iiiiij'] = createExportWrapper('dynCall_iiiiij');
-var dynCall_iiiiijj = Module['dynCall_iiiiijj'] = createExportWrapper('dynCall_iiiiijj');
-var dynCall_iiiiiijj = Module['dynCall_iiiiiijj'] = createExportWrapper('dynCall_iiiiiijj');
 
 
 // include: postamble.js
@@ -5743,6 +5813,8 @@ Module['keepRuntimeAlive'] = keepRuntimeAlive;
 Module['wasmMemory'] = wasmMemory;
 Module['cwrap'] = cwrap;
 Module['ExitStatus'] = ExitStatus;
+Module['getCppExceptionTag'] = getCppExceptionTag;
+Module['decrementExceptionRefcount'] = decrementExceptionRefcount;
 Module['PThread'] = PThread;
 var missingLibrarySymbols = [
   'writeI53ToI64',
@@ -5753,6 +5825,7 @@ var missingLibrarySymbols = [
   'readI53FromI64',
   'readI53FromU64',
   'convertI32PairToI53',
+  'convertI32PairToI53Checked',
   'convertU32PairToI53',
   'growMemory',
   'ydayFromDate',
@@ -5771,7 +5844,6 @@ var missingLibrarySymbols = [
   'jstoi_s',
   'listenOnce',
   'autoResumeAudioContext',
-  'dynCallLegacy',
   'getDynCaller',
   'dynCall',
   'runtimeKeepalivePop',
@@ -5869,6 +5941,8 @@ var missingLibrarySymbols = [
   'setMainLoop',
   'getSocketFromFD',
   'getSocketAddress',
+  'FS_unlink',
+  'FS_mkdirTree',
   '_setNetworkCallback',
   'heapObjectForWebGLType',
   'heapAccessShiftForWebGLHeap',
@@ -5894,7 +5968,6 @@ var missingLibrarySymbols = [
   'SDL_unicode',
   'SDL_ttfContext',
   'SDL_audio',
-  'GLFW_Window',
   'ALLOC_NORMAL',
   'ALLOC_STACK',
   'allocate',
@@ -5914,16 +5987,14 @@ var unexportedSymbols = [
   'removeRunDependency',
   'FS_createFolder',
   'FS_createPath',
-  'FS_createDataFile',
   'FS_createLazyFile',
   'FS_createLink',
   'FS_createDevice',
-  'FS_unlink',
+  'FS_readFile',
   'out',
   'err',
   'callMain',
   'abort',
-  'wasmTable',
   'wasmExports',
   'stackAlloc',
   'stackSave',
@@ -5932,7 +6003,9 @@ var unexportedSymbols = [
   'setTempRet0',
   'writeStackCookie',
   'checkStackCookie',
-  'convertI32PairToI53Checked',
+  'MAX_INT53',
+  'MIN_INT53',
+  'bigintToI53Checked',
   'ptrToString',
   'zeroMemory',
   'exitJS',
@@ -5966,6 +6039,7 @@ var unexportedSymbols = [
   'asyncLoad',
   'alignMemory',
   'mmapAlloc',
+  'wasmTable',
   'getCFunc',
   'ccall',
   'freeTableIndexes',
@@ -5996,10 +6070,8 @@ var unexportedSymbols = [
   'doWritev',
   'promiseMap',
   'getExceptionMessageCommon',
-  'getCppExceptionTag',
   'getCppExceptionThrownObjectFromWebAssemblyException',
   'incrementExceptionRefcount',
-  'decrementExceptionRefcount',
   'getExceptionMessage',
   'Browser',
   'wget',
@@ -6011,6 +6083,7 @@ var unexportedSymbols = [
   'FS_stdin_getChar_buffer',
   'FS_stdin_getChar',
   'FS',
+  'FS_createDataFile',
   'MEMFS',
   'TTY',
   'PIPEFS',
@@ -6027,7 +6100,6 @@ var unexportedSymbols = [
   'IDBStore',
   'SDL',
   'SDL_gfx',
-  'GLFW',
   'allocateUTF8',
   'allocateUTF8OnStack',
   'terminateWorker',
@@ -6038,7 +6110,7 @@ var unexportedSymbols = [
   'spawnThread',
   'exitOnMainThread',
   'proxyToMainThread',
-  'emscripten_receive_on_main_thread_js_callArgs',
+  'proxiedJSCallArgs',
   'invokeEntryPoint',
   'checkMailbox',
 ];
@@ -6182,7 +6254,4 @@ run();
 
 );
 })();
-if (typeof exports === 'object' && typeof module === 'object')
-  module.exports = talvos;
-else if (typeof define === 'function' && define['amd'])
-  define([], () => talvos);
+export default talvos;

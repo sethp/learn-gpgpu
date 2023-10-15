@@ -1,6 +1,6 @@
 import type { AstroIntegration, DataEntryType, HookParameters } from 'astro';
 
-export default function rawFiles(...exts: [string]): AstroIntegration {
+export default function rawFiles(...exts: string[]): AstroIntegration {
 	return {
 		name: 'raw-files',
 		hooks: {

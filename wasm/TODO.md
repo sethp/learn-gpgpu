@@ -1,1 +1,5 @@
-- [ ] build chains lolol (currently these are just copied by hand)
+- [ ] build chains lolol (currently these are just copied by hand from a talvos build configured just so)
+- [ ] debug symbols ought to work when checked out at a different path than `/home/seth/...`
+  - and, as part of this, we really ought to document how to get them to work as flexibly as sensible
+- [ ] document this: https://www.sitepoint.com/edit-source-files-in-chrome/
+  - especially its limitations re: wasm

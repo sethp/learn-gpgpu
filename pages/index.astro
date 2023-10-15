@@ -1,96 +1,154 @@
 ---
 import { getEntry } from 'astro:content';
 
-// todo can we snarf the types from `getEntry` ?
-async function getContents(c: string, f: string) {
-	const file = await getEntry(c as any, f);
+type GetEntryParams = Parameters<typeof getEntry>;
+type Collection = GetEntryParams[0];
+type Id = GetEntryParams[1];
+
+async function getContents(c: Collection, f: Id) {
+	const file = await getEntry(c, f);
+	// there's a type-shaped puzzle box here to remove the `!`;
+	// right now, `getContents` accepts anything that might be a "raw file",
+	// and/or a collection/id pair that might not even exist.
+	//
+	// There Exists A Way to restrict the type signature to only allow raw file
+	// collections / existing IDs within those collections, but I don't know the
+	// typescript meta-language well enough to identify an effective approach.
 	return file!.data.contents;
 }
 
-// functionality
+// nice to have
 
-// TODO: wasm module
-// TODO: layout
-
-// polish
-
-// TODO: loading screen
-// TODO: error boundary
 // TODO: monaco editor
 // TODO: lsp integration w/ tree-sitter
-// TODO: styling ? (things improved a bit here when I took out the tailwind reset)
-
-// debuggability
-// TODO: serve up source map(s) (+ DWARF?); associated files
 ---
 
 <html>
 	<head>
 		<title>gpgpu playground</title>
-		<script type="text/javascript" src="../wasm/talvos-wasm.js"></script>
 		<script>
-			// import { talvos } from '../wasm/talvos-wasm';
+			// TODO
+			/// <zreference types="emscripten" />
+			import talvos from '../wasm/talvos-wasm';
 
-			var outBuf = '';
+			const rootEl = document.getElementById('talvos')!;
+
+			const stdioEl =
+				rootEl.querySelector<HTMLOutputElement>('output.stdio') || ({} as { value: HTMLOutputElement['value'] });
+			const errorEl =
+				rootEl.querySelector<HTMLOutputElement>('output.error') || ({} as { value: HTMLOutputElement['value'] });
+
 			var Module = {
-				print: function (text) {
-					outBuf += text + '\n';
+				print: function (text: any) {
+					stdioEl.value += text + '\n';
 				},
-				printErr: function (text) {
-					outBuf += text + '\n';
+				printErr: function (text: any) {
+					stdioEl.value += text + '\n';
 				},
-			};
+			} as any; /* TODO: emscripten types */
 
-			await talvos(Module).then((instance) => {
-				window.run_wasm = instance.cwrap('run_wasm', null, ['string', 'string']);
-				window.validate_wasm = instance.cwrap('validate_wasm', 'boolean', ['string']);
-			});
+			const [validate_wasm, run_wasm, exception, assertion] = (function (p) {
+				return [
+					p.then((instance) => instance.cwrap('validate_wasm', 'boolean', ['string'])),
+					p.then((instance) => instance.cwrap('run_wasm', null, ['string', 'string'])),
+					p.then((instance) => instance.cwrap('exception', null, [])),
+					p.then((instance) => instance.cwrap('assertion', null, [])),
+				];
+			})(talvos(Module));
 
-			window.run = function () {
-				outBuf = '';
-				const text = document.getElementById('module').value;
-				const commands = document.getElementById('commands').value;
+			function captureOutput(f: Function, qstart?: PerformanceMeasure) {
+				stdioEl.value = '';
+				errorEl.value = '';
+				// TODO why does `start = start ?? ...` not narrow the type here?
+				let start = qstart ?? window.performance.mark('talvos');
+				return (async () => f())()
+					.catch((ex) => {
+						var message;
+						// TODO `Property 'Exception' does not exist on type 'typeof WebAssembly'.`
+						// @ts-ignore
+						if (ex instanceof WebAssembly.Exception) {
+							var type;
+							[type, message] = Module.getExceptionMessage(ex);
+							message = message || `of type ${type}`;
+
+							console.error(
+								/* must be the only argument to symbolicate properly */
+								ex.stack
+								/* cf. https://crbug.com/1428532 */
+							);
+							Module.decrementExceptionRefcount(ex);
+						} else {
+							console.error(`in ${start.name}:`, ex);
+							message = '' + ex;
+						}
+						errorEl.value = message;
+					})
+					.finally(() => {
+						const call = window.performance.measure(start.name, start.name);
+						rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `done in ${call.duration}ms`;
+						// console.log(`done! took ${call.duration}ms`);
+						// console.log('output:\n', outBuf);
+					});
+			}
+
+			rootEl.querySelector<HTMLButtonElement>('button.run')!.onclick = async function () {
+				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
+				const commands = (rootEl.querySelector('.commands') as { value: string } | null)!.value;
 
 				const start = window.performance.mark('run_wasm', { detail: { text, commands } });
-				try {
-					run_wasm(text, commands);
-					// TODO exception handling
+				captureOutput(async () => {
+					(await run_wasm)(text, commands);
 					// TODO something goes very wrong when `BUFFER output 2 INT32 FILL 0` (memory access exception reporting failure) and then we try to `run` again
 					//   ^ bjorks the whole tab
 					// TODO (generally, handling "invalid memory access" better?)
-				} finally {
-					const call = window.performance.measure(start.name, start.name);
-					console.log(`done! took ${call.duration}ms`);
-					console.log('output:\n', outBuf);
-				}
-
-				document.getElementById('output').value = outBuf;
+					// 		loosely; I think this means throwing away the whole talvos instance and re-creating it?
+				}, start);
 			};
 
-			window.validate = function () {
-				outBuf = '';
-				const text = document.getElementById('module').value;
+			rootEl.querySelector<HTMLButtonElement>('button.validate')!.onclick = async function () {
+				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
 
 				const start = window.performance.mark('validate_wasm', { detail: { text } });
-				let ok = false;
-				try {
-					ok = validate_wasm(text, commands);
-				} finally {
-					const call = window.performance.measure(start.name, start.name);
-					console.log(`done! took ${call.duration}ms`);
-					console.log('output:\n', outBuf);
-				}
-				if (!outBuf && ok) outBuf = 'ok!';
-
-				document.getElementById('output').value = outBuf;
+				const ok = await captureOutput(async () => (await validate_wasm)(text), start);
+				rootEl.querySelector<HTMLOutputElement>('output.stdio')!.value += ok ? 'ok!' : 'not ok :(';
 			};
+
+			rootEl.querySelector<HTMLButtonElement>('button.assertion')!.onclick = async () => captureOutput(await assertion);
+			rootEl.querySelector<HTMLButtonElement>('button.exception')!.onclick = async () => captureOutput(await exception);
 		</script>
 	</head>
 	<body>
-		<textarea id="module">{await getContents('talvos', 'phi-swap.spvasm')}</textarea>
-		<textarea id="commands">{await getContents('talvos', 'phi-swap.tcf')}</textarea>
-		<textarea id="output"> </textarea>
-		<button onclick="validate(); ">validate</button>
-		<button onclick="run();">run</button>
+		<div id="talvos">
+			<textarea
+				class="module"
+				autocorrect="off"
+				autocomplete="off"
+				autocapitalize="off"
+				spellcheck="false"
+				aria-label="SPIR-V module assembly (spv_text format)"
+				wrap="off">{await getContents('talvos', 'vecadd.spvasm')}</textarea
+			>
+			<textarea
+				class="commands"
+				autocorrect="off"
+				autocomplete="off"
+				autocapitalize="off"
+				spellcheck="false"
+				aria-label="Talvos commands (tcf format)"
+				wrap="off">{await getContents('talvos', 'vecadd.tcf')}</textarea
+			>
+
+			<button class="validate">validate</button>
+			<button class="run">run</button>
+
+			<div style="display: none;">
+				<button class="exception">exception</button>
+				<button class="assertion">assertion</button>
+			</div>
+
+			<output class="timing" style="display: block;"></output>
+			<output class="stdio" style="display: block; background-color: lightgray; white-space: pre;"></output>
+			<output class="error" style="display: block; background-color: #fcebeb;"></output>
+		</div>
 	</body>
 </html>
