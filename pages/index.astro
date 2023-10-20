@@ -47,18 +47,141 @@ async function getContents(c: Collection, f: Id) {
 				},
 			} as any; /* TODO: emscripten types */
 
-			const [validate_wasm, run_wasm, exception, assertion] = (function (p) {
+			addEventListener('error', (event) => {
+				errorEl.value = '' + event.message;
+			});
+
+			const [validate_wasm, exception, assertion, { run, debug, Session }] = (function (p: Promise<any>) {
 				return [
 					p.then((instance) => instance.cwrap('validate_wasm', 'boolean', ['string'])),
-					p.then((instance) => instance.cwrap('run_wasm', null, ['string', 'string'])),
 					p.then((instance) => instance.cwrap('exception', null, [])),
 					p.then((instance) => instance.cwrap('assertion', null, [])),
+					(() => {
+						var pp = p.then(
+							({
+								wasmExports: {
+									Session__create__,
+									Session__destroy__,
+									Session_run,
+									Session_start,
+									Session_step,
+									Session_switch,
+									Session_print,
+									Session_continue,
+									Session_printContext,
+								},
+
+								stackAlloc,
+								stackSave,
+								stackRestore,
+								stringToUTF8OnStack,
+								// writeArrayToMemory, // this is only HEAP8?
+								HEAP32,
+								// HEAP8,
+
+								...instance
+							}) => {
+								function toCArgs(args: string[]) {
+									const cstrs = args.map(stringToUTF8OnStack) as number[];
+									const argv = stackAlloc(cstrs.length);
+									// writeArrayToMemory(cstrs, argv);
+									// HEAP32.set(cstrs, argv);
+									// for (int i )
+									cstrs.forEach((s, i) => {
+										HEAP32[(argv + i * 4) >> 2] = s;
+									});
+
+									return [cstrs.length, argv];
+								}
+
+								class Session {
+									ptr: any;
+
+									// @ts-ignore
+									static bind(ptr) {
+										let self = Object.create(this.prototype);
+										self.ptr = ptr;
+										return self;
+									}
+
+									constructor() {
+										this.ptr = Session__create__();
+									}
+
+									run() {
+										Session_run(this.ptr);
+									}
+									start() {
+										Session_start(this.ptr);
+									}
+									step(): number {
+										return Session_step(this.ptr);
+									}
+									switch(args: string[]) {
+										// TODO why this dance? what does stack save/stack restore do?
+										const stack = stackSave();
+										Session_switch(this.ptr, ...toCArgs(['switch', ...args]));
+										// TODO wrap the restore in a finally ?
+										stackRestore(stack);
+									}
+									print(args: string[]) {
+										// TODO why this dance? what does stack save/stack restore do?
+										const stack = stackSave();
+										Session_print(this.ptr, ...toCArgs(['print', ...args]));
+										// TODO wrap the restore in a finally ?
+										stackRestore(stack);
+									}
+									continue() {
+										Session_continue(this.ptr);
+									}
+									printContext() {
+										Session_printContext(this.ptr);
+									}
+
+									['__destroy__']() {
+										// TODO use a finalizer pool?
+										console.log('Session.destroy...');
+										Session__destroy__(this.ptr);
+										this.ptr = 0;
+									}
+								}
+
+								return {
+									Session,
+									run: function () {
+										return Session.bind(instance.ccall('run_wasm', undefined, ['string', 'string'], arguments));
+									},
+									debug: function () {
+										return Session.bind(instance.ccall('debug_wasm', undefined, ['string', 'string'], arguments));
+									},
+								};
+							}
+						);
+
+						return {
+							Session: pp.then((val) => val.Session),
+							run: pp.then((val) => val.run),
+							debug: pp.then((val) => val.debug),
+						};
+					})(),
 				];
 			})(talvos(Module));
+			// TODO?
+			// type Session = Awaited<typeof Session>;
+			type Session = any;
 
+			// TODO this probably belongs in some prejs thing over in talvos-land
+			// @ts-ignore
+			function destroy(self) {
+				self['__destroy__']();
+			}
+
+			// TODO refactor into `withTiming` / `withExec` ?
 			function captureOutput(f: Function, qstart?: PerformanceMeasure) {
 				stdioEl.value = '';
 				errorEl.value = '';
+				rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `...`;
+				rootEl.querySelectorAll<HTMLButtonElement>('button.exec').forEach((el) => (el.disabled = true));
 				// TODO why does `start = start ?? ...` not narrow the type here?
 				let start = qstart ?? window.performance.mark('talvos');
 				return (async () => f())()
@@ -86,24 +209,11 @@ async function getContents(c: Collection, f: Id) {
 					.finally(() => {
 						const call = window.performance.measure(start.name, start.name);
 						rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `done in ${call.duration}ms`;
+						rootEl.querySelectorAll<HTMLButtonElement>('button.exec').forEach((el) => el.removeAttribute('disabled'));
 						// console.log(`done! took ${call.duration}ms`);
 						// console.log('output:\n', outBuf);
 					});
 			}
-
-			rootEl.querySelector<HTMLButtonElement>('button.run')!.onclick = async function () {
-				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
-				const commands = (rootEl.querySelector('.commands') as { value: string } | null)!.value;
-
-				const start = window.performance.mark('run_wasm', { detail: { text, commands } });
-				captureOutput(async () => {
-					(await run_wasm)(text, commands);
-					// TODO something goes very wrong when `BUFFER output 2 INT32 FILL 0` (memory access exception reporting failure) and then we try to `run` again
-					//   ^ bjorks the whole tab
-					// TODO (generally, handling "invalid memory access" better?)
-					// 		loosely; I think this means throwing away the whole talvos instance and re-creating it?
-				}, start);
-			};
 
 			rootEl.querySelector<HTMLButtonElement>('button.validate')!.onclick = async function () {
 				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
@@ -115,6 +225,110 @@ async function getContents(c: Collection, f: Id) {
 
 			rootEl.querySelector<HTMLButtonElement>('button.assertion')!.onclick = async () => captureOutput(await assertion);
 			rootEl.querySelector<HTMLButtonElement>('button.exception')!.onclick = async () => captureOutput(await exception);
+
+			rootEl.querySelector<HTMLButtonElement>('button.run')!.onclick = async function () {
+				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
+				const commands = (rootEl.querySelector('.commands') as { value: string } | null)!.value;
+
+				const start = window.performance.mark('run_wasm', { detail: { text, commands } });
+				captureOutput(async () => {
+					// @ts-ignore
+					const session = (await run)(text, commands);
+					try {
+						session.run();
+					} finally {
+						destroy(session);
+					}
+					// TODO something goes very wrong when `BUFFER output 2 INT32 FILL 0` (memory access exception reporting failure) and then we try to `run` again
+					//   ^ bjorks the whole tab
+					// TODO (generally, handling "invalid memory access" better?)
+					// 		loosely; I think this means throwing away the whole talvos instance and re-creating it?
+				}, start);
+			};
+
+			rootEl.querySelector<HTMLButtonElement>('button.debug')!.onclick = async function () {
+				stdioEl.value = '';
+				errorEl.value = '';
+				rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `...`;
+				rootEl.querySelectorAll<HTMLButtonElement>('button.exec').forEach((el) => (el.disabled = true));
+				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
+				const commands = (rootEl.querySelector('.commands') as { value: string } | null)!.value;
+
+				const start = window.performance.mark('debug', { detail: { text, commands } });
+				// @ts-ignore
+				const session: Session = (await debug)(text, commands);
+
+				const debugCtrl = rootEl.querySelector<HTMLElement>('.debugger')!;
+
+				function finish() {
+					debugCtrl.hidden = true;
+					// remove references to 1) allow the session to be GC'd, and 2) safety of the dangling pointer
+					debugCtrl.querySelectorAll<HTMLButtonElement>('button').forEach((el) => (el.onclick = null));
+					rootEl.querySelectorAll<HTMLButtonElement>('button.exec').forEach((el) => el.removeAttribute('disabled'));
+
+					destroy(session);
+
+					const call = window.performance.measure(start.name, start.name);
+					rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `done in ${call.duration}ms`;
+				}
+
+				try {
+					session.start();
+
+					session.printContext();
+				} catch (e) {
+					finish();
+					throw e;
+				}
+
+				const FINISHED = 1; // TODO sync with talvos::PipelineExecutor::StepResult
+
+				debugCtrl.querySelector<HTMLButtonElement>('button.step')!.onclick = function () {
+					stdioEl.value = '';
+					errorEl.value = '';
+					try {
+						const last = session.step();
+						if (last == FINISHED) {
+							finish();
+						}
+
+						session.printContext();
+					} catch (e) {
+						finish();
+						throw e;
+					}
+				};
+				debugCtrl.querySelector<HTMLButtonElement>('button.switch')!.onclick = function () {
+					const input = prompt('Usage: switch: X [Y [Z]]', 'X [Y [Z]]'); // %15 is `void` in vecadd
+					if (input == null) {
+						return;
+					}
+					const args = input.split(/\s+/);
+					session.switch(args);
+				};
+				debugCtrl.querySelector<HTMLButtonElement>('button.print')!.onclick = function () {
+					const input = prompt('Usage: print: %<id>', '%15'); // %15 is `void` in vecadd
+					if (input == null) {
+						return;
+					}
+					const args = input.split(/\s+/);
+					session.print(args);
+				};
+
+				debugCtrl.querySelector<HTMLButtonElement>('button.stop')!.onclick = finish;
+				debugCtrl.querySelector<HTMLButtonElement>('button.continue')!.onclick = function () {
+					stdioEl.value = '';
+					errorEl.value = '';
+					try {
+						session.continue();
+					} finally {
+						// TODO breakpoints
+						finish();
+					}
+				};
+
+				debugCtrl.hidden = false;
+			};
 		</script>
 	</head>
 	<body>
@@ -138,14 +352,26 @@ async function getContents(c: Collection, f: Id) {
 				wrap="off">{await getContents('talvos', 'vecadd.tcf')}</textarea
 			>
 
-			<button class="validate">validate</button>
-			<button class="run">run</button>
+			<button class="validate exec">validate</button>
+			<button class="run exec">run</button>
+			<button class="debug exec">debug</button>
 
-			<div style="display: none;">
+			<div hidden>
 				<button class="exception">exception</button>
 				<button class="assertion">assertion</button>
 			</div>
 
+			<div class="debugger" hidden>
+				<!-- cf. PipelineExecutor::help -->
+				<button class="step">step</button>
+				<button class="switch">switch</button>
+				<button class="print">print</button>
+				<button class="continue">continue</button>
+				<button class="stop">stop</button>
+				<!-- missing: [break, breakpoint, help, quit] -->
+			</div>
+
+			<!-- TODO can we pull out just this one wodget into a preact component? -->
 			<output class="timing" style="display: block;"></output>
 			<output class="stdio" style="display: block; background-color: lightgray; white-space: pre;"></output>
 			<output class="error" style="display: block; background-color: #fcebeb;"></output>
