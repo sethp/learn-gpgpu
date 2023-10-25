@@ -330,6 +330,7 @@ async function getContents(c: Collection, f: Id) {
 				debugCtrl.hidden = false;
 			};
 		</script>
+    <link rel="stylesheet" type="text/css" media="all" href="/styles/index.css">
 	</head>
 	<body>
 		<div id="talvos">
@@ -352,9 +353,11 @@ async function getContents(c: Collection, f: Id) {
 				wrap="off">{await getContents('talvos', 'vecadd.tcf')}</textarea
 			>
 
-			<button class="validate exec">validate</button>
-			<button class="run exec">run</button>
-			<button class="debug exec">debug</button>
+      <div id="controls">
+        <button class="validate exec">validate</button>
+        <button class="run exec">run</button>
+        <button class="debug exec">debug</button>
+      </div>
 
 			<div hidden>
 				<button class="exception">exception</button>

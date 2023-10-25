@@ -1,0 +1,16 @@
+body {
+  background : #eee;
+}
+textarea {
+  margin : 0 1em;
+  width : 45%;
+  height : 500px;
+}
+#controls {
+  text-align : center;
+  background : #ccc;
+  padding : .5em 0;
+}
+#controls button {
+  margin : 0 1em;
+}

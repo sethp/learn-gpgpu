@@ -22,3 +22,6 @@ pnpm-debug.log*
 
 /tmp/
 /_tmp/
+
+# vim swap files
+*.swp
