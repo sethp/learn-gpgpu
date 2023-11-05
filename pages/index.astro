@@ -17,6 +17,25 @@ async function getContents(c: Collection, f: Id) {
 	return file!.data.contents;
 }
 
+// TODO: doesn't css do multiplication now? could we just say `x = width * (num prior siblings) + padding * (num prior siblings)`? should we?
+// lol sorta: https://stackoverflow.com/a/66262844 (just gotta pre-generate the identity mapping from `nth-child(n) -> --var: n` for all n we care about)
+const vis = {
+	lanes: {
+		width: 15,
+		height: 15,
+		padding: {
+			x: 1,
+			y: 1,
+		},
+	},
+	// TODO why can't ts sniff this one out?
+	cores: Array(4).fill({
+		lanes: {
+			count: 8,
+		},
+	}),
+};
+
 // nice to have
 
 // TODO: monaco editor
@@ -29,6 +48,10 @@ async function getContents(c: Collection, f: Id) {
 		<script>
 			// TODO
 			/// <zreference types="emscripten" />
+			import { Arena } from '../lib/binding/arena';
+			import { Ptr } from '../lib/binding/ptr';
+			import { BitSet } from '../lib/bitset';
+			import { States, ExecutionUniverse } from '../lib/executionUniverse';
 			import talvos from '../wasm/talvos-wasm';
 
 			const rootEl = document.getElementById('talvos')!;
@@ -47,9 +70,98 @@ async function getContents(c: Collection, f: Id) {
 				},
 			} as any; /* TODO: emscripten types */
 
-			addEventListener('error', (event) => {
+			window.addEventListener('error', (event) => {
 				errorEl.value = '' + event.message;
 			});
+			window.addEventListener('unhandledrejection', function (event) {
+				errorEl.value = '' + event.reason;
+			});
+
+			const svgEl = document.querySelector<SVGElement>('#talvos svg')!;
+			// this part is................. well, it's a prototype
+			const [doUpdateVis, clearVis] = (() => {
+				// via https://matyasfodor.com/blog/efficient-zip#how-javascript-could-do-it
+				// and https://stackoverflow.com/a/70192772/151464
+				function* zip<T extends Iterable<unknown>[]>(
+					...args: T
+				): Generator<{ [K in keyof T]: T[K] extends Iterable<infer V> ? V : never }> {
+					const iterators = args.map((iterable) => iterable[Symbol.iterator]());
+					// TODO[seth]: this feels a little over-allocate-y? do we need a whole array just for the states?
+					// TODO[seth]: maybe some benchmarks?
+					let iterStates = iterators.map((iterator) => iterator.next());
+					while (iterStates.every(({ done }) => !done)) {
+						// @ts-expect-error
+						yield iterStates.map(({ value }) => value);
+						iterStates = iterators.map((iterator) => iterator.next());
+					}
+				}
+
+				const clearVis = () => {
+					svgEl.querySelectorAll<SVGElement>('.lane').forEach((el) => {
+						el.classList.remove('disabled', 'selected');
+						el.dataset.state = 'inactive';
+						delete el.dataset.logCoords;
+					});
+				};
+
+				const layerViolationStopEl = document.querySelector<HTMLButtonElement>('#talvos button.stop')!;
+				layerViolationStopEl.addEventListener('click', clearVis);
+				const layerViolationContEl = document.querySelector<HTMLButtonElement>('#talvos button.continue')!;
+				layerViolationContEl.addEventListener('click', () => setTimeout(clearVis, 0)); // lol
+				const layerViolationRunEl = document.querySelector<HTMLButtonElement>('#talvos button.run')!;
+				layerViolationRunEl.addEventListener('click', clearVis);
+
+				function toDOMString(s: States) {
+					switch (s) {
+						case States.Active:
+							return 'active';
+						case States.Inactive:
+							return 'inactive';
+						case States.AtBarrier:
+							return 'at-barrier';
+						case States.AtBreakpoint:
+							return 'at-breakpoint';
+						case States.AtAssert:
+							return 'at-assert';
+						case States.AtException:
+							return 'at-exception';
+						case States.NotLaunched:
+							return 'not-launched';
+						case States.Exited:
+							return 'exited';
+						case States.UNKNOWN:
+							return 'unkown';
+					}
+				}
+
+				return [
+					(e: ExecutionUniverse) => {
+						// last 2 `g`s (there is something weird here...)
+						// svgEl.querySelectorAll('g:nth-last-child(-n+3) > rect').forEach((el) => el.classList.add('disabled'));
+
+						console.assert('' + e.Cores == svgEl.dataset.cores);
+						console.assert('' + e.Lanes == svgEl.dataset.lanes);
+
+						for (const [idx, el, data] of zip(
+							(function* () {
+								let i = 0;
+								while (true) {
+									yield i++;
+								}
+							})(),
+							svgEl.querySelectorAll<SVGElement>('g > .lane'),
+							e.LaneStates
+						)) {
+							console.assert(`{ ${data.PhyCoord.Core}, ${data.PhyCoord.Lane} }` == el.dataset.phyCoords);
+
+							el.dataset.state = toDOMString(data.State);
+							el.dataset.logCoords = `{ 0, (${data.LogCoord.X},${data.LogCoord.Y},${data.LogCoord.Z}) }`;
+							el.classList.toggle('selected', e.SteppedLanes.has(idx));
+						}
+					},
+					clearVis,
+				];
+			})();
 
 			const [validate_wasm, exception, assertion, { run, debug, Session }] = (function (p: Promise<any>) {
 				return [
@@ -69,6 +181,8 @@ async function getContents(c: Collection, f: Id) {
 									Session_print,
 									Session_continue,
 									Session_printContext,
+
+									Session_fetch_shrubbery,
 								},
 
 								stackAlloc,
@@ -79,14 +193,25 @@ async function getContents(c: Collection, f: Id) {
 								HEAP32,
 								// HEAP8,
 
+								wasmMemory,
+								_malloc,
+								_free,
+
 								...instance
 							}) => {
+								type dtor = () => void;
+								function heapAlloc(size: number): [Ptr, dtor] {
+									const addr = _malloc(size);
+									const buf = wasmMemory.buffer;
+									const ptr = new Ptr(buf, addr, size);
+									return [ptr, () => _free(ptr) as void];
+								}
+
 								function toCArgs(args: string[]) {
 									const cstrs = args.map(stringToUTF8OnStack) as number[];
 									const argv = stackAlloc(cstrs.length);
 									// writeArrayToMemory(cstrs, argv);
 									// HEAP32.set(cstrs, argv);
-									// for (int i )
 									cstrs.forEach((s, i) => {
 										HEAP32[(argv + i * 4) >> 2] = s;
 									});
@@ -94,28 +219,55 @@ async function getContents(c: Collection, f: Id) {
 									return [cstrs.length, argv];
 								}
 
+								const arenaSize = 1 << 12; // TODO
 								class Session {
-									ptr: any;
+									ptr: unknown;
 
-									// @ts-ignore
-									static bind(ptr) {
-										let self = Object.create(this.prototype);
-										self.ptr = ptr;
+									// TODO ahh but I turned off typescript's help with these this way...
+									// these are initialized in Session.bind, which the constructor calls
+									// cf. https://stackoverflow.com/a/72540067
+									arena!: Arena;
+									lastOp!: ExecutionUniverse;
+									laneMask!: BitSet;
+
+									static bind(ptr: unknown) {
+										try {
+											var self = Object.create(this.prototype);
+											self.ptr = ptr;
+											self.arena = new Arena(...heapAlloc(arenaSize));
+											self.lastOp = new ExecutionUniverse(self.arena.alloc(ExecutionUniverse.SIZE));
+											self.laneMask = new BitSet(undefined, { data: self.arena.alloc(8).data });
+										} catch (ex) {
+											Session__destroy__(ptr);
+											if (self?.arena) destroy(self.arena);
+											throw ex;
+										}
 										return self;
 									}
 
 									constructor() {
-										this.ptr = Session__create__();
+										return Session.bind(Session__create__());
 									}
 
 									run() {
 										Session_run(this.ptr);
 									}
 									start() {
-										Session_start(this.ptr);
+										Session_start(this.ptr, this.lastOp.ptr.asRef());
+										doUpdateVis(this.lastOp);
 									}
 									step(): number {
-										return Session_step(this.ptr);
+										this.laneMask.clear();
+										svgEl.querySelectorAll('.lane').forEach((el, i) => {
+											// TODO this assumes a linear indexing of lanes, but we've got per-core indexing in talvos
+											if (el.classList.contains('selected')) this.laneMask.add(i);
+										});
+										var ret = Session_step(this.ptr, this.laneMask.asRef(), this.lastOp.asRef());
+										doUpdateVis(this.lastOp);
+										if (ret > 0) {
+											clearVis();
+										}
+										return ret;
 									}
 									switch(args: string[]) {
 										// TODO why this dance? what does stack save/stack restore do?
@@ -132,10 +284,17 @@ async function getContents(c: Collection, f: Id) {
 										stackRestore(stack);
 									}
 									continue() {
-										Session_continue(this.ptr);
+										Session_continue(this.ptr, this.lastOp.ptr.asRef());
+										doUpdateVis(this.lastOp);
 									}
 									printContext() {
 										Session_printContext(this.ptr);
+									}
+
+									fetchShrubbery() {
+										var ret = this.arena.alloc(8);
+										Session_fetch_shrubbery(this.ptr, ret.asRef());
+										return new BitSet(undefined, { data: ret.data });
 									}
 
 									['__destroy__']() {
@@ -143,6 +302,7 @@ async function getContents(c: Collection, f: Id) {
 										console.log('Session.destroy...');
 										Session__destroy__(this.ptr);
 										this.ptr = 0;
+										destroy(this.arena);
 									}
 								}
 
@@ -225,6 +385,15 @@ async function getContents(c: Collection, f: Id) {
 
 			rootEl.querySelector<HTMLButtonElement>('button.assertion')!.onclick = async () => captureOutput(await assertion);
 			rootEl.querySelector<HTMLButtonElement>('button.exception')!.onclick = async () => captureOutput(await exception);
+			rootEl.querySelector<HTMLButtonElement>('button.shrubbery')!.onclick = async () => {
+				const s = (await Session).bind(0xc0ffeecafe);
+				try {
+					const bs = s.fetchShrubbery();
+					console.log(bs);
+				} finally {
+					destroy(s.arena);
+				}
+			};
 
 			rootEl.querySelector<HTMLButtonElement>('button.run')!.onclick = async function () {
 				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
@@ -330,7 +499,7 @@ async function getContents(c: Collection, f: Id) {
 				debugCtrl.hidden = false;
 			};
 		</script>
-    <link rel="stylesheet" type="text/css" media="all" href="/styles/index.css">
+		<link rel="stylesheet" type="text/css" media="all" href="/styles/index.css" />
 	</head>
 	<body>
 		<div id="talvos">
@@ -353,31 +522,224 @@ async function getContents(c: Collection, f: Id) {
 				wrap="off">{await getContents('talvos', 'vecadd.tcf')}</textarea
 			>
 
-      <div id="controls">
-        <button class="validate exec">validate</button>
-        <button class="run exec">run</button>
-        <button class="debug exec">debug</button>
-      </div>
+			<div id="controls">
+				<button class="validate exec">validate</button>
+				<button class="run exec">run</button>
+				<button class="debug exec">debug</button>
 
-			<div hidden>
-				<button class="exception">exception</button>
-				<button class="assertion">assertion</button>
+				<div hidden>
+					<button class="exception">exception</button>
+					<button class="assertion">assertion</button>
+					<button class="shrubbery">shrubbery</button>
+				</div>
+
+				<div class="debugger" hidden>
+					<!-- cf. PipelineExecutor::help -->
+					<button class="step">step</button>
+					<button class="switch">switch</button>
+					<button class="print">print</button>
+					<button class="continue">continue</button>
+					<button class="stop">stop</button>
+					<!-- missing: [break, breakpoint, help, quit] -->
+				</div>
 			</div>
 
-			<div class="debugger" hidden>
-				<!-- cf. PipelineExecutor::help -->
-				<button class="step">step</button>
-				<button class="switch">switch</button>
-				<button class="print">print</button>
-				<button class="continue">continue</button>
-				<button class="stop">stop</button>
-				<!-- missing: [break, breakpoint, help, quit] -->
-			</div>
-
-			<!-- TODO can we pull out just this one wodget into a preact component? -->
+			<!-- TODO
+				 can we pull out just this one wodget into a "component"?
+				 it'd be nice to write some code for turning `102043253.21231222ms` into a human time
+			-->
 			<output class="timing" style="display: block;"></output>
-			<output class="stdio" style="display: block; background-color: lightgray; white-space: pre;"></output>
+
+			<svg xmlns="http://www.w3.org/2000/svg" data-cores={vis.cores.length} data-lanes={vis.cores[0].lanes.count}>
+				<style>
+					g.core :hover,
+					g.core :focus {
+						filter: drop-shadow(0 0 3px rgb(0 0 0 / 0.4));
+					}
+
+					g.core .ctrl {
+						fill: chocolate;
+					}
+
+					.lane.selected,
+					.ctrl:has(~ .lane.selected):not(:has(~ .lane:not(.selected))) {
+						filter: url(#inset-shadow);
+					}
+
+					.ctrl:has(~ .lane[data-state='not-launched']):not(:has(~ .lane[data-state='not-launched'])) {
+						filter: opacity(60%);
+					}
+
+					/* .disabled {
+						filter: opacity(60%);
+					} */
+
+					/*
+						TODO these colors are from NVIDIA nsight; but they're also bad?
+
+						cf. "CUDA Debugger Warp Info View" from https://developer.nvidia.com/nsight-visual-studio-edition
+						(https://d29g4g2dyqv443.cloudfront.net/sites/default/files/akamai/tools/nsvse/nsvse2020_1/NsVSE_Dbg_WarpInfo_Vw.png)
+					*/
+					/* TODO: wait, what's `not-launched` vs `inactive`? */
+					.lane[data-state='active'] {
+						fill: forestgreen;
+					}
+					.lane[data-state='inactive'] {
+						fill: grey;
+					}
+
+					.lane[data-state='at-barrier'] {
+						fill: lightseagreen;
+					}
+					.lane[data-state='at-breakpoint'] {
+						fill: red;
+					}
+					.lane[data-state='at-assert'] {
+						fill: orange;
+					}
+					.lane[data-state='at-exception'] {
+						fill: darkred;
+					}
+					.lane[data-state='not-launched'] {
+						fill: darkgray;
+					}
+					.lane[data-state='exited'] {
+						fill: lightgray;
+					}
+
+					/* svg text {
+						visibility: hidden;
+					}
+					svg:hover text {
+						visibility: visible;
+					} */
+
+					/*
+						NB: doesn't work for two reasons: css-for-svg doesn't support the `content` property or the `::before` pseudo-element
+
+						cf. https://svgwg.org/svg2-draft/styling.html#RequiredProperties
+						and https://svgwg.org/svg2-draft/styling.html#RequiredCSSFeatures
+					*/
+					/* tspan.physical::before {
+						content: 'hello';
+					} */
+
+					/* lol there's also CSS-only way to do the hover text, if we don't mind the nth-child(n) -> --var:n mapping thing above */
+					/* we'd have to break out using `foreignObject`, though */
+				</style>
+
+				<!-- <script></script> -->
+				<!-- <defs>
+					<pattern id="tenthGrid" width="10" height="10" patternUnits="userSpaceOnUse">
+						<path d="M 10 0 L 0 0 0 10" fill="none" stroke="silver" stroke-width="0.5"></path>
+					</pattern>
+					<pattern id="grid" width="100" height="100" patternUnits="userSpaceOnUse">
+						<rect width="100" height="100" fill="url(#tenthGrid)"></rect>
+						<path d="M 100 0 L 0 0 0 100" fill="none" stroke="gray" stroke-width="1"></path>
+					</pattern>
+				</defs>
+				<rect width="100%" height="100%" fill="url(#grid)"></rect> -->
+
+				<defs>
+					<filter id="inset-shadow">
+						<!-- lol hates it -->
+						<!-- <link
+							href="https://css-tricks.com/adding-shadows-to-svg-icons-with-css-and-svg-filters/#aa-using-svg-filters"
+							rel="help"
+						/> -->
+						<!-- Shadow offset -->
+						<feOffset dx="0" dy="0"></feOffset>
+
+						<!-- Shadow blur -->
+						<feGaussianBlur stdDeviation="6" result="offset-blur"></feGaussianBlur>
+
+						<!-- Invert drop shadow to make an inset shadow -->
+						<feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"></feComposite>
+
+						<!-- Cut color inside shadow -->
+						<feFlood flood-color="black" flood-opacity=".95" result="color"></feFlood>
+						<feComposite operator="in" in="color" in2="inverse" result="shadow"></feComposite>
+
+						<!-- Placing shadow over element -->
+						<feComposite operator="over" in="shadow" in2="SourceGraphic"></feComposite>
+					</filter>
+				</defs>
+
+				 ${
+					vis.cores.map((core, i) => (
+						<g class="core" transform={`translate(0, ${vis.lanes.height * i + vis.lanes.padding.y * i})`}>
+							<rect class="ctrl" x={vis.lanes.width / 4} width={vis.lanes.width * 1.5} height={vis.lanes.height} />
+							{Array.from({ length: core.lanes.count }).map((_, j) => (
+								<rect
+									x={(j + 2) * (vis.lanes.width + vis.lanes.padding.x)}
+									width={vis.lanes.width}
+									height={vis.lanes.height}
+									data-phy-coords={`{ ${i}, ${j} }`}
+									class="lane"
+									data-state="inactive"
+								/>
+							))}
+						</g>
+					))
+				}
+
+				<!-- could put this above, if we knew how tall an em was (or translated negatively?) -->
+				<text y={vis.cores.length * (vis.lanes.height + vis.lanes.padding.y) + vis.lanes.padding.y}>
+					<tspan x="0" dy="1em">physical {`{core, SIMT lane}`}:</tspan>
+					<tspan class="physical">N/A</tspan>
+					<tspan x="0" dy="1.2em">logical {`{workgroup, invocation}`}:</tspan>
+					<tspan class="logical">N/A</tspan>
+				</text>
+			</svg>
+
 			<output class="error" style="display: block; background-color: #fcebeb;"></output>
+			<output class="stdio" style="display: block; background-color: lightgray; white-space: pre;"></output>
 		</div>
 	</body>
+	<script>
+		const svgEl = document.querySelector<SVGElement>('#talvos svg')!;
+
+		const phyEl = svgEl.querySelector<SVGTSpanElement>('tspan.physical')!;
+		const logEl = svgEl.querySelector<SVGTSpanElement>('tspan.logical')!;
+
+		const laneEls = svgEl.querySelectorAll<SVGElement>('.lane');
+		for (const el of laneEls) {
+			el.addEventListener('mouseenter', function () {
+				phyEl.textContent = this.dataset.phyCoords!;
+				logEl.textContent = this.dataset.logCoords ?? 'N/A';
+			});
+			el.addEventListener('mouseleave', function () {
+				phyEl.textContent = 'N/A';
+				logEl.textContent = 'N/A';
+			});
+
+			el.addEventListener('click', function () {
+				if (this.classList.contains('.disabled')) return;
+
+				this.classList.toggle('selected');
+			});
+		}
+
+		const ctrlEls = svgEl.querySelectorAll<SVGElement>('.ctrl');
+		for (const [i, el] of ctrlEls.entries()) {
+			el.addEventListener('mouseenter', function () {
+				// TODO don't assume lane width
+				phyEl.textContent = `{ ${i}, [${i * 8}-${i * 8 + 7}] }`;
+			});
+			el.addEventListener('mouseleave', function () {
+				phyEl.textContent = 'N/A';
+			});
+
+			el.addEventListener('click', function () {
+				// TODO tease apart "the scheduler decided" vs "the human decided"
+				const selectable = !!this.parentNode!.querySelector('.lane[data-state="active"], .lane[data-state="inactive"]');
+				if (!selectable) return;
+
+				const hasNoneSelected = !this.parentNode!.querySelector('.lane.selected');
+				this.parentNode!.querySelectorAll<SVGElement>('.lane').forEach((laneEl) => {
+					laneEl.classList.toggle('selected', hasNoneSelected);
+				});
+			});
+		}
+	</script>
 </html>

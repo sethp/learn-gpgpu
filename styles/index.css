@@ -14,3 +14,6 @@ textarea {
 #controls button {
   margin : 0 1em;
 }
+#controls div {
+	padding-top: 0.5em;
+}

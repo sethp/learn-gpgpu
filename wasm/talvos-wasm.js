@@ -27,7 +27,7 @@ Module['ready'] = new Promise((resolve, reject) => {
   readyPromiseResolve = resolve;
   readyPromiseReject = reject;
 });
-["_main","getExceptionMessage","___get_exception_message","_free","___cpp_exception","___cxa_increment_exception_refcount","___cxa_decrement_exception_refcount","___thrown_object_from_unwind_exception","_memory","_Session__create__","_Session__destroy__","_Session_run","_Session_start","_Session_printContext","_Session_step","_Session_continue","_Session_print","_Session_switch","_validate_wasm","_run_wasm","_debug_wasm","_exception","_assertion","___indirect_function_table","_fflush","onRuntimeInitialized"].forEach((prop) => {
+["_malloc","_free","getExceptionMessage","___get_exception_message","___cpp_exception","___cxa_increment_exception_refcount","___cxa_decrement_exception_refcount","___thrown_object_from_unwind_exception","_memory","_Session__create__","_Session__destroy__","_Session_run","_Session_start","_Session_printContext","_Session_step","_Session_continue","_Session_print","_Session_switch","_validate_wasm","_run_wasm","_debug_wasm","_Session_fetch_shrubbery","_exception","_assertion","___indirect_function_table","_fflush","onRuntimeInitialized"].forEach((prop) => {
   if (!Object.getOwnPropertyDescriptor(Module['ready'], prop)) {
     Object.defineProperty(Module['ready'], prop, {
       get: () => abort('You are getting ' + prop + ' on the Promise object, instead of the instance. Use .then() to get called back with the instance, see the MODULARIZE docs in src/settings.js'),
@@ -320,9 +320,6 @@ function assert(condition, text) {
 
 // We used to include malloc/free by default in the past. Show a helpful error in
 // builds with assertions.
-function _malloc() {
-  abort("malloc() called but not included in the build - add '_malloc' to EXPORTED_FUNCTIONS");
-}
 
 // Memory management
 
@@ -766,7 +763,7 @@ function createWasm() {
     Module['wasmExports'] = wasmExports;
 
     wasmMemory = wasmExports['memory'];
-    
+    Module['wasmMemory'] = wasmMemory;
     assert(wasmMemory, "memory not found in wasm exports");
     // This assertion doesn't hold when emscripten is run in --post-link
     // mode.
@@ -4805,11 +4802,13 @@ var _Session_switch = Module['_Session_switch'] = createExportWrapper('Session_s
 var _validate_wasm = Module['_validate_wasm'] = createExportWrapper('validate_wasm');
 var _run_wasm = Module['_run_wasm'] = createExportWrapper('run_wasm');
 var _debug_wasm = Module['_debug_wasm'] = createExportWrapper('debug_wasm');
+var _Session_fetch_shrubbery = Module['_Session_fetch_shrubbery'] = createExportWrapper('Session_fetch_shrubbery');
 var _exception = Module['_exception'] = createExportWrapper('exception');
 var _assertion = Module['_assertion'] = createExportWrapper('assertion');
 var ___errno_location = createExportWrapper('__errno_location');
 var _fflush = Module['_fflush'] = createExportWrapper('fflush');
 var _free = Module['_free'] = createExportWrapper('free');
+var _malloc = Module['_malloc'] = createExportWrapper('malloc');
 var ___trap = () => (___trap = wasmExports['__trap'])();
 var _emscripten_stack_init = () => (_emscripten_stack_init = wasmExports['emscripten_stack_init'])();
 var _emscripten_stack_get_free = () => (_emscripten_stack_get_free = wasmExports['emscripten_stack_get_free'])();
@@ -4828,6 +4827,7 @@ var ___get_exception_message = Module['___get_exception_message'] = createExport
 // include: postamble.js
 // === Auto-generated postamble setup entry stuff ===
 
+Module['wasmMemory'] = wasmMemory;
 Module['wasmExports'] = wasmExports;
 Module['stackAlloc'] = stackAlloc;
 Module['stackSave'] = stackSave;
@@ -5017,7 +5017,6 @@ var unexportedSymbols = [
   'callMain',
   'abort',
   'keepRuntimeAlive',
-  'wasmMemory',
   'getTempRet0',
   'setTempRet0',
   'writeStackCookie',
