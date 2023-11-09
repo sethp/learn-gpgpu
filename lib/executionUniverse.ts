@@ -11,7 +11,7 @@ import { BitSet } from "./bitset";
 //   The TypedArrays offsets are in elem width chunks, but DataView.prototype.get* are all in bytes
 //
 
-// TODO move these into ./bind ?
+// TODO move these into ./binding ?
 const LITTLE_ENDIAN = true; // yay booleans
 const UINT8 = { size: 1, get(ptr: Ptr, offset: number) { return ptr.data.getUint8(offset) } }
 const UINT64 = { size: 8 }
@@ -131,7 +131,6 @@ export class ExecutionUniverse {
 		})
 	}
 	get LaneStates() {
-		var i = 0;
 		var n = Math.min(this.Cores * this.Lanes, MAX_LANE_STATES);
 		const ptr = this.ptr.slice(24)
 		// return new Proxy({
@@ -157,16 +156,19 @@ export class ExecutionUniverse {
 				};
 			},
 
-			[Symbol.iterator]: () => ({
-				next() {
-					if (i >= n)
-						return { done: true, value: undefined as never }
+			[Symbol.iterator]: () => {
+				var i = 0;
+				return {
+					next() {
+						if (i >= n)
+							return { done: true, value: undefined as never }
 
-					return {
-						done: false, value: arr.get(i++),
+						return {
+							done: false, value: arr.get(i++),
+						}
 					}
 				}
-			})
+			}
 		};
 		return arr
 		// // this (+ `return new Proxy({` above ) via https://stackoverflow.com/a/57634753/151464

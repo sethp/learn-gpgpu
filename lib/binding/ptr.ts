@@ -65,6 +65,22 @@ export class Ptr {
 		return this.addr;
 	}
 
+	as<T>(ctor: new (buf: ArrayBufferLike, offset: number, length: number) => T): T {
+		return new ctor(this.data.buffer, this.addr, this.byteLength)
+	}
+
+	// eh, we're all 32-bit for now anyway
+	static get SIZE() {
+		return 4;
+	}
+	getUsize(byteOffset: number, littleEndian?: boolean): number {
+		return this.data.getUint32(byteOffset, littleEndian)
+	}
+
+	deref(byteOffset: number, size?: number, littleEndian?: boolean): Ptr {
+		return new Ptr(this.data.buffer, this.getUsize(byteOffset, littleEndian), size)
+	}
+
 	// asArrayBuffer(_size?: size_t) {
 	// 	throw new Error("todo")
 	// 	// return this.data.slice(this.addr, size ? (this.addr + size) : undefined)

@@ -3,23 +3,21 @@
 
 const shift = 6; // TODO relationship w/ BigUint64Array.BYTES_PER_ELEMENT /*8*/ + 1 ?
 
+`
+(module
+	(func (export "i64.popcnt") (param i64) (result i32)
+    local.get 0
+    i64.popcnt
+    i32.wrap_i64))
+`
+// via https://webassembly.github.io/wabt/demo/wat2wasm/
+const wasm = (await
+	WebAssembly.instantiateStreaming(
+		fetch("data:application/wasm;base64,AGFzbQEAAAABBgFgAX4BfwMCAQAHDgEKaTY0LnBvcGNudAAACggBBgAgAHunCwAKBG5hbWUCAwEAAA=="),
+		{}));
 
-// NB: only works with positive values, because a negative bigint has logically infinite popcount
-// TODO: also, wasm has a popcount instruction? perhaps via https://developer.mozilla.org/en-US/docs/WebAssembly/JavaScript_interface/compile ?
-export function popcount(v: bigint) {
-	// via https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel ?
-	// these don't work as-is, because `-1n / 3n` gives us `0n`,.
-	// rather than 0xFFF...FFF / 0x11 as desired
-	// v -= (v >> 1n) & (~0n / 3n);
-	// v = (v & (~0n / 15n * 3n)) + ((v >> 2n) & (~0n / 15n * 3n));
-	// v = (v + (v >> 4n)) & (~0n / 255n * 15n);
-	// return Number((v * ((~0n / 255n))) >> (64n - 1n) * 8n);
-	let count = 0;
-	for (; v > 0; v >>= 1n) {
-		count += Number(v & 1n)
-	}
-	return count
-}
+const instance = wasm.instance;
+export const popcount = instance.exports['i64.popcnt'] as (v: bigint) => number;
 
 interface Data {
 	buffer: ArrayBufferLike,
@@ -27,6 +25,7 @@ interface Data {
 	byteLength: number
 }
 
+// @ts-expect-error "duplicate identifier BitSet" (seems not to like my top-level await so much)
 export class BitSet {
 	words: BigUint64Array
 	readonly growable: boolean

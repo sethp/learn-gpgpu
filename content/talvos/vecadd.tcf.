@@ -1,5 +1,5 @@
 # MODULE vecadd.spvasm
-ENTRY vecadd
+# ENTRY vecadd
 
 BUFFER a 64 SERIES INT32 0 1
 BUFFER b 64 FILL   INT32 7

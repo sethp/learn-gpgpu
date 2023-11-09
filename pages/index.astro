@@ -36,6 +36,11 @@ const vis = {
 	}),
 };
 
+const splits = [/\n# ENTRY.*\n/];
+const tcfContents = await getContents('talvos', 'vecadd.tcf');
+
+const tcfChunks = tcfContents.split(splits[0]);
+
 // nice to have
 
 // TODO: monaco editor
@@ -52,6 +57,7 @@ const vis = {
 			import { Ptr } from '../lib/binding/ptr';
 			import { BitSet } from '../lib/bitset';
 			import { States, ExecutionUniverse } from '../lib/executionUniverse';
+			import { Talvos$$Module, Talvos$$Params } from '../lib/talvos';
 			import talvos from '../wasm/talvos-wasm';
 
 			const rootEl = document.getElementById('talvos')!;
@@ -163,7 +169,7 @@ const vis = {
 				];
 			})();
 
-			const [validate_wasm, exception, assertion, { run, debug, Session }] = (function (p: Promise<any>) {
+			const [validate_wasm, exception, assertion, { /*run, debug,*/ Session }] = (function (p: Promise<any>) {
 				return [
 					p.then((instance) => instance.cwrap('validate_wasm', 'boolean', ['string'])),
 					p.then((instance) => instance.cwrap('exception', null, [])),
@@ -174,6 +180,9 @@ const vis = {
 								wasmExports: {
 									Session__create__,
 									Session__destroy__,
+									Session__params_ref,
+									Session__module_ref,
+
 									Session_run,
 									Session_start,
 									Session_step,
@@ -189,6 +198,8 @@ const vis = {
 								stackSave,
 								stackRestore,
 								stringToUTF8OnStack,
+								// stringToUTF8Array,
+								// UTF8ArrayToString,
 								// writeArrayToMemory, // this is only HEAP8?
 								HEAP32,
 								// HEAP8,
@@ -197,7 +208,7 @@ const vis = {
 								_malloc,
 								_free,
 
-								...instance
+								// ...instance
 							}) => {
 								type dtor = () => void;
 								function heapAlloc(size: number): [Ptr, dtor] {
@@ -229,6 +240,8 @@ const vis = {
 									arena!: Arena;
 									lastOp!: ExecutionUniverse;
 									laneMask!: BitSet;
+									params!: Talvos$$Params;
+									module!: Talvos$$Module;
 
 									static bind(ptr: unknown) {
 										try {
@@ -237,6 +250,12 @@ const vis = {
 											self.arena = new Arena(...heapAlloc(arenaSize));
 											self.lastOp = new ExecutionUniverse(self.arena.alloc(ExecutionUniverse.SIZE));
 											self.laneMask = new BitSet(undefined, { data: self.arena.alloc(8).data });
+											self.params = new Talvos$$Params(
+												new Ptr(wasmMemory.buffer, Session__params_ref(ptr), Talvos$$Params.SIZE)
+											);
+											self.module = new Talvos$$Module(
+												new Ptr(wasmMemory.buffer, Session__module_ref(ptr), Talvos$$Module.SIZE)
+											);
 										} catch (ex) {
 											Session__destroy__(ptr);
 											if (self?.arena) destroy(self.arena);
@@ -245,8 +264,14 @@ const vis = {
 										return self;
 									}
 
-									constructor() {
-										return Session.bind(Session__create__());
+									constructor(module: string, commands: string) {
+										// TODO why this dance? what does stack save/stack restore do?
+										const stack = stackSave();
+										const [arg0, arg1] = [module, commands].map(stringToUTF8OnStack) as number[];
+										const ref = Session__create__(arg0, arg1);
+										// TODO wrap the restore in a finally ?
+										stackRestore(stack);
+										return Session.bind(ref);
 									}
 
 									run() {
@@ -308,20 +333,20 @@ const vis = {
 
 								return {
 									Session,
-									run: function () {
-										return Session.bind(instance.ccall('run_wasm', undefined, ['string', 'string'], arguments));
-									},
-									debug: function () {
-										return Session.bind(instance.ccall('debug_wasm', undefined, ['string', 'string'], arguments));
-									},
+									// run: function () {
+									// 	return Session.bind(instance.ccall('run_wasm', undefined, ['string', 'string'], arguments));
+									// },
+									// debug: function () {
+									// 	return Session.bind(instance.ccall('debug_wasm', undefined, ['string', 'string'], arguments));
+									// },
 								};
 							}
 						);
 
 						return {
 							Session: pp.then((val) => val.Session),
-							run: pp.then((val) => val.run),
-							debug: pp.then((val) => val.debug),
+							// run: pp.then((val) => val.run),
+							// debug: pp.then((val) => val.debug),
 						};
 					})(),
 				];
@@ -401,8 +426,9 @@ const vis = {
 
 				const start = window.performance.mark('run_wasm', { detail: { text, commands } });
 				captureOutput(async () => {
-					// @ts-ignore
-					const session = (await run)(text, commands);
+					const session = new (await Session)(text, commands);
+					const entryEl = rootEl.querySelector<HTMLSelectElement>('select[name="entry"]')!;
+					session.params.EntryName = entryEl.selectedOptions.item(0)!.value;
 					try {
 						session.run();
 					} finally {
@@ -424,8 +450,8 @@ const vis = {
 				const commands = (rootEl.querySelector('.commands') as { value: string } | null)!.value;
 
 				const start = window.performance.mark('debug', { detail: { text, commands } });
-				// @ts-ignore
-				const session: Session = (await debug)(text, commands);
+				const session = new (await Session)(text, commands);
+				session.params.EntryName = 'vecadd';
 
 				const debugCtrl = rootEl.querySelector<HTMLElement>('.debugger')!;
 
@@ -498,29 +524,86 @@ const vis = {
 
 				debugCtrl.hidden = false;
 			};
+
+			const entryEl = rootEl.querySelector<HTMLSelectElement>('select[name="entry"]')!;
+			setTimeout(async function updateEntrypoints() {
+				// lol redirect
+				const oldOut = stdioEl.value,
+					oldErr = errorEl.value;
+				stdioEl.value = '';
+				errorEl.value = '';
+
+				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
+
+				const s = new (await Session)(text, '');
+				try {
+					console.log([...s.module.EntryPoints].map((ep) => ep.Name.asString()));
+					entryEl.innerHTML = [...s.module.EntryPoints].map((ep) => `<option>${ep.Name.asString()}</option>`).join('');
+				} finally {
+					destroy(s);
+				}
+
+				if (stdioEl.value) {
+					console.log(stdioEl.value);
+				}
+				stdioEl.value = oldOut;
+				if (errorEl.value) {
+					console.error(errorEl.value);
+				}
+				errorEl.value = oldErr;
+				// TODO polling? or onchange notifications?
+				// setTimeout(updateEntrypoints, 2000);
+			}, 0);
 		</script>
 		<link rel="stylesheet" type="text/css" media="all" href="/styles/index.css" />
 	</head>
 	<body>
 		<div id="talvos">
-			<textarea
-				class="module"
-				autocorrect="off"
-				autocomplete="off"
-				autocapitalize="off"
-				spellcheck="false"
-				aria-label="SPIR-V module assembly (spv_text format)"
-				wrap="off">{await getContents('talvos', 'vecadd.spvasm')}</textarea
-			>
-			<textarea
-				class="commands"
-				autocorrect="off"
-				autocomplete="off"
-				autocapitalize="off"
-				spellcheck="false"
-				aria-label="Talvos commands (tcf format)"
-				wrap="off">{await getContents('talvos', 'vecadd.tcf')}</textarea
-			>
+			<div>
+				<main>
+					<textarea
+						class="module"
+						autocorrect="off"
+						autocomplete="off"
+						autocapitalize="off"
+						spellcheck="false"
+						aria-label="SPIR-V module assembly (spv_text format)"
+						wrap="off">{await getContents('talvos', 'vecadd.spvasm')}</textarea
+					>
+				</main>
+				<aside>
+					<section>
+						<textarea
+							class="commands_todo_make_js_concatenate_all_the_commands inactive"
+							autocorrect="off"
+							autocomplete="off"
+							autocapitalize="off"
+							spellcheck="false"
+							aria-label="Talvos commands (informational)"
+							disabled
+							wrap="off">{tcfChunks[0]}</textarea
+						>
+					</section>
+					<section>
+						<label
+							>ENTRY
+							<select name="entry"></select>
+						</label>
+					</section>
+					<section>
+						<textarea
+							class="commands"
+							style="height: 434px"
+							autocorrect="off"
+							autocomplete="off"
+							autocapitalize="off"
+							spellcheck="false"
+							aria-label="Talvos commands (tcf format)"
+							wrap="off">{tcfChunks[1]}</textarea
+						>
+					</section>
+				</aside>
+			</div>
 
 			<div id="controls">
 				<button class="validate exec">validate</button>

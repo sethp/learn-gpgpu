@@ -27,7 +27,7 @@ Module['ready'] = new Promise((resolve, reject) => {
   readyPromiseResolve = resolve;
   readyPromiseReject = reject;
 });
-["_malloc","_free","getExceptionMessage","___get_exception_message","___cpp_exception","___cxa_increment_exception_refcount","___cxa_decrement_exception_refcount","___thrown_object_from_unwind_exception","_memory","_Session__create__","_Session__destroy__","_Session_run","_Session_start","_Session_printContext","_Session_step","_Session_continue","_Session_print","_Session_switch","_validate_wasm","_run_wasm","_debug_wasm","_Session_fetch_shrubbery","_exception","_assertion","___indirect_function_table","_fflush","onRuntimeInitialized"].forEach((prop) => {
+["_malloc","_free","getExceptionMessage","___get_exception_message","___cpp_exception","___cxa_increment_exception_refcount","___cxa_decrement_exception_refcount","___thrown_object_from_unwind_exception","_memory","_Session__create__","_Session__destroy__","_Session__params_ref","_Session__module_ref","_Session_run","_Session_start","_Session_printContext","_Session_step","_Session_continue","_Session_print","_Session_switch","_validate_wasm","_run_wasm","_debug_wasm","_Session_fetch_shrubbery","_exception","_assertion","___indirect_function_table","_fflush","onRuntimeInitialized"].forEach((prop) => {
   if (!Object.getOwnPropertyDescriptor(Module['ready'], prop)) {
     Object.defineProperty(Module['ready'], prop, {
       get: () => abort('You are getting ' + prop + ' on the Promise object, instead of the instance. Use .then() to get called back with the instance, see the MODULARIZE docs in src/settings.js'),
@@ -4579,6 +4579,8 @@ function dbg(text) {
 
 
 
+
+
   var FSNode = /** @constructor */ function(parent, name, mode, rdev) {
     if (!parent) {
       parent = this;  // root node sets parent to itself
@@ -4792,6 +4794,8 @@ var wasmExports = createWasm();
 var ___wasm_call_ctors = createExportWrapper('__wasm_call_ctors');
 var _Session__create__ = Module['_Session__create__'] = createExportWrapper('Session__create__');
 var _Session__destroy__ = Module['_Session__destroy__'] = createExportWrapper('Session__destroy__');
+var _Session__params_ref = Module['_Session__params_ref'] = createExportWrapper('Session__params_ref');
+var _Session__module_ref = Module['_Session__module_ref'] = createExportWrapper('Session__module_ref');
 var _Session_run = Module['_Session_run'] = createExportWrapper('Session_run');
 var _Session_start = Module['_Session_start'] = createExportWrapper('Session_start');
 var _Session_printContext = Module['_Session_printContext'] = createExportWrapper('Session_printContext');
@@ -4834,6 +4838,8 @@ Module['stackSave'] = stackSave;
 Module['stackRestore'] = stackRestore;
 Module['ccall'] = ccall;
 Module['cwrap'] = cwrap;
+Module['UTF8ArrayToString'] = UTF8ArrayToString;
+Module['stringToUTF8Array'] = stringToUTF8Array;
 Module['stringToUTF8OnStack'] = stringToUTF8OnStack;
 Module['writeArrayToMemory'] = writeArrayToMemory;
 Module['getCppExceptionTag'] = getCppExceptionTag;
@@ -5062,9 +5068,7 @@ var unexportedSymbols = [
   'PATH',
   'PATH_FS',
   'UTF8Decoder',
-  'UTF8ArrayToString',
   'UTF8ToString',
-  'stringToUTF8Array',
   'stringToUTF8',
   'lengthBytesUTF8',
   'intArrayFromString',

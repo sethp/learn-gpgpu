@@ -3,7 +3,7 @@ import { Ptr } from "./ptr";
 
 describe("Ptr", () => {
 	// [0, 1, 2, ...]
-	const nums = new Uint8Array(...[Array(5).keys()]);
+	const nums = new Uint8Array([...Array(5).keys()]);
 
 	test("slice", () => {
 		const ptr = new Ptr(nums.buffer);
@@ -28,5 +28,14 @@ describe("Ptr", () => {
 			const got = new Uint8Array(sliced.data.buffer, sliced.addr, sliced.byteLength)
 			expect([...got], msg).toEqual(want)
 		}
+	})
+
+	test("as(Uint8Array)", () => {
+		const ptr = new Ptr(nums.buffer, 2, 3);
+
+		const view = ptr.as(Uint8Array);
+
+		view[view.length - 1] = 6;
+		expect([...view]).toEqual([2, 3, 6]);
 	})
 })
