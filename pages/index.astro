@@ -555,7 +555,7 @@ const tcfChunks = tcfContents.split(splits[0]);
 				// setTimeout(updateEntrypoints, 2000);
 			}, 0);
 		</script>
-		<link rel="stylesheet" type="text/css" media="all" href="/styles/index.css" />
+		<link rel="stylesheet" type="text/css" media="all" href="/learn-gpgpu/styles/index.css" />
 	</head>
 	<body>
 		<div id="talvos">
@@ -748,7 +748,7 @@ const tcfChunks = tcfContents.split(splits[0]);
 					</filter>
 				</defs>
 
-				 ${
+				${
 					vis.cores.map((core, i) => (
 						<g class="core" transform={`translate(0, ${vis.lanes.height * i + vis.lanes.padding.y * i})`}>
 							<rect class="ctrl" x={vis.lanes.width / 4} width={vis.lanes.width * 1.5} height={vis.lanes.height} />

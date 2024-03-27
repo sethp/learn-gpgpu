@@ -4,6 +4,8 @@ import rawFiles from "./astro/raw-files";
 
 // https://astro.build/config
 export default defineConfig({
+	site: 'https://sethp.github.io',
+	base: 'learn-gpgpu',
 	srcDir: ".",
 	integrations: [rawFiles(".spvasm", ".tcf")],
 	server: (_) => ({
