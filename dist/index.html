@@ -1,0 +1,183 @@
+<!DOCTYPE html><html><head><title>gpgpu playground</title><link rel="stylesheet" type="text/css" media="all" href="/styles/index.css"><script type="module" src="/_astro/hoisted.cc73fd08.js"></script></head><body><div id="talvos"><div><main><textarea class="module" autocorrect="off" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="SPIR-V module assembly (spv_text format)" wrap="off">; SPIR-V
+; Version: 1.2
+; Generator: Khronos SPIR-V Tools Assembler; 0
+; Bound: 32
+; Schema: 0
+               OpCapability Shader
+               OpCapability VariablePointers
+               OpExtension &quot;SPV_KHR_storage_buffer_storage_class&quot;
+               OpExtension &quot;SPV_KHR_variable_pointers&quot;
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %1 &quot;vecadd&quot; %2
+               OpSource OpenCL_C 120
+               OpDecorate %3 SpecId 0
+               OpDecorate %4 SpecId 1
+               OpDecorate %5 SpecId 2
+               OpDecorate %6 ArrayStride 4
+               OpMemberDecorate %7 0 Offset 0
+               OpDecorate %7 Block
+               OpDecorate %2 BuiltIn GlobalInvocationId
+               OpDecorate %8 BuiltIn WorkgroupSize
+               OpDecorate %9 DescriptorSet 0
+               OpDecorate %9 Binding 0
+               OpDecorate %10 DescriptorSet 0
+               OpDecorate %10 Binding 1
+               OpDecorate %11 DescriptorSet 0
+               OpDecorate %11 Binding 2
+         %12 = OpTypeInt 32 0
+         %13 = OpTypePointer StorageBuffer %12
+          %6 = OpTypeRuntimeArray %12
+          %7 = OpTypeStruct %6
+         %14 = OpTypePointer StorageBuffer %7
+         %15 = OpTypeVoid
+         %16 = OpTypeFunction %15
+         %17 = OpTypeVector %12 3
+         %18 = OpTypePointer Input %17
+         %19 = OpTypePointer Input %12
+         %20 = OpTypePointer Private %17
+         %21 = OpConstant %12 0
+          %2 = OpVariable %18 Input
+          %3 = OpSpecConstant %12 1
+          %4 = OpSpecConstant %12 1
+          %5 = OpSpecConstant %12 1
+          %8 = OpSpecConstantComposite %17 %3 %4 %5
+         %22 = OpVariable %20 Private %8
+          %9 = OpVariable %14 StorageBuffer
+         %10 = OpVariable %14 StorageBuffer
+         %11 = OpVariable %14 StorageBuffer
+          %1 = OpFunction %15 None %16
+         %23 = OpLabel
+         %24 = OpAccessChain %19 %2 %21
+         %25 = OpLoad %12 %24
+         %26 = OpAccessChain %13 %9 %21 %25
+         %27 = OpLoad %12 %26
+         %28 = OpAccessChain %13 %10 %21 %25
+         %29 = OpLoad %12 %28
+         %30 = OpIAdd %12 %29 %27
+         %31 = OpAccessChain %13 %11 %21 %25
+               OpStore %31 %30
+               OpReturn
+               OpFunctionEnd
+</textarea></main><aside><section><textarea class="commands_todo_make_js_concatenate_all_the_commands inactive" autocorrect="off" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Talvos commands (informational)" disabled wrap="off"># MODULE vecadd.spvasm</textarea></section><section><label>ENTRY
+<select name="entry"></select></label></section><section><textarea class="commands" style="height: 434px" autocorrect="off" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Talvos commands (tcf format)" wrap="off">
+BUFFER a 64 SERIES INT32 0 1
+BUFFER b 64 FILL   INT32 7
+BUFFER c 64 FILL   INT32 0
+
+DESCRIPTOR_SET 0 0 0 a
+DESCRIPTOR_SET 0 1 0 b
+DESCRIPTOR_SET 0 2 0 c
+
+DISPATCH 16 1 1
+
+DUMP INT32 c
+
+# CHECK: Buffer &#39;c&#39; (64 bytes):
+# CHECK:   c[0] = 7
+# CHECK:   c[1] = 8
+# CHECK:   c[2] = 9
+# CHECK:   c[3] = 10
+# CHECK:   c[4] = 11
+# CHECK:   c[5] = 12
+# CHECK:   c[6] = 13
+# CHECK:   c[7] = 14
+# CHECK:   c[8] = 15
+# CHECK:   c[9] = 16
+# CHECK:   c[10] = 17
+# CHECK:   c[11] = 18
+# CHECK:   c[12] = 19
+# CHECK:   c[13] = 20
+# CHECK:   c[14] = 21
+# CHECK:   c[15] = 22
+</textarea></section></aside></div><div id="controls"><button class="validate exec">validate</button><button class="run exec">run</button><button class="debug exec">debug</button><div hidden><button class="exception">exception</button><button class="assertion">assertion</button><button class="shrubbery">shrubbery</button></div><div class="debugger" hidden><!-- cf. PipelineExecutor::help --><button class="step">step</button><button class="switch">switch</button><button class="print">print</button><button class="continue">continue</button><button class="stop">stop</button><!-- missing: [break, breakpoint, help, quit] --></div></div><!-- TODO
+				 can we pull out just this one wodget into a "component"?
+				 it'd be nice to write some code for turning `102043253.21231222ms` into a human time
+			--><output class="timing" style="display: block;"></output><svg xmlns="http://www.w3.org/2000/svg" data-cores="4" data-lanes="8"><style>
+					g.core :hover,
+					g.core :focus {
+						filter: drop-shadow(0 0 3px rgb(0 0 0 / 0.4));
+					}
+
+					g.core .ctrl {
+						fill: chocolate;
+					}
+
+					.lane.selected,
+					.ctrl:has(~ .lane.selected):not(:has(~ .lane:not(.selected))) {
+						filter: url(#inset-shadow);
+					}
+
+					.ctrl:has(~ .lane[data-state='not-launched']):not(:has(~ .lane[data-state='not-launched'])) {
+						filter: opacity(60%);
+					}
+
+					/* .disabled {
+						filter: opacity(60%);
+					} */
+
+					/*
+						TODO these colors are from NVIDIA nsight; but they're also bad?
+
+						cf. "CUDA Debugger Warp Info View" from https://developer.nvidia.com/nsight-visual-studio-edition
+						(https://d29g4g2dyqv443.cloudfront.net/sites/default/files/akamai/tools/nsvse/nsvse2020_1/NsVSE_Dbg_WarpInfo_Vw.png)
+					*/
+					/* TODO: wait, what's `not-launched` vs `inactive`? */
+					.lane[data-state='active'] {
+						fill: forestgreen;
+					}
+					.lane[data-state='inactive'] {
+						fill: grey;
+					}
+
+					.lane[data-state='at-barrier'] {
+						fill: lightseagreen;
+					}
+					.lane[data-state='at-breakpoint'] {
+						fill: red;
+					}
+					.lane[data-state='at-assert'] {
+						fill: orange;
+					}
+					.lane[data-state='at-exception'] {
+						fill: darkred;
+					}
+					.lane[data-state='not-launched'] {
+						fill: darkgray;
+					}
+					.lane[data-state='exited'] {
+						fill: lightgray;
+					}
+
+					/* svg text {
+						visibility: hidden;
+					}
+					svg:hover text {
+						visibility: visible;
+					} */
+
+					/*
+						NB: doesn't work for two reasons: css-for-svg doesn't support the `content` property or the `::before` pseudo-element
+
+						cf. https://svgwg.org/svg2-draft/styling.html#RequiredProperties
+						and https://svgwg.org/svg2-draft/styling.html#RequiredCSSFeatures
+					*/
+					/* tspan.physical::before {
+						content: 'hello';
+					} */
+
+					/* lol there's also CSS-only way to do the hover text, if we don't mind the nth-child(n) -> --var:n mapping thing above */
+					/* we'd have to break out using `foreignObject`, though */
+				</style><!-- <script></script> --><!-- <defs>
+					<pattern id="tenthGrid" width="10" height="10" patternUnits="userSpaceOnUse">
+						<path d="M 10 0 L 0 0 0 10" fill="none" stroke="silver" stroke-width="0.5"></path>
+					</pattern>
+					<pattern id="grid" width="100" height="100" patternUnits="userSpaceOnUse">
+						<rect width="100" height="100" fill="url(#tenthGrid)"></rect>
+						<path d="M 100 0 L 0 0 0 100" fill="none" stroke="gray" stroke-width="1"></path>
+					</pattern>
+				</defs>
+				<rect width="100%" height="100%" fill="url(#grid)"></rect> --><defs><filter id="inset-shadow"><!-- lol hates it --><!-- <link
+							href="https://css-tricks.com/adding-shadows-to-svg-icons-with-css-and-svg-filters/#aa-using-svg-filters"
+							rel="help"
+						/> --><!-- Shadow offset --><feOffset dx="0" dy="0"></feOffset><!-- Shadow blur --><feGaussianBlur stdDeviation="6" result="offset-blur"></feGaussianBlur><!-- Invert drop shadow to make an inset shadow --><feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"></feComposite><!-- Cut color inside shadow --><feFlood flood-color="black" flood-opacity=".95" result="color"></feFlood><feComposite operator="in" in="color" in2="inverse" result="shadow"></feComposite><!-- Placing shadow over element --><feComposite operator="over" in="shadow" in2="SourceGraphic"></feComposite></filter></defs>
+$<g class="core" transform="translate(0, 0)"><rect class="ctrl" x="3.75" width="22.5" height="15"></rect><rect x="32" width="15" height="15" data-phy-coords="{ 0, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 0, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 0, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 0, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 0, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 0, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 0, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 0, 7 }" class="lane" data-state="inactive"></rect></g><g class="core" transform="translate(0, 16)"><rect class="ctrl" x="3.75" width="22.5" height="15"></rect><rect x="32" width="15" height="15" data-phy-coords="{ 1, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 1, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 1, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 1, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 1, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 1, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 1, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 1, 7 }" class="lane" data-state="inactive"></rect></g><g class="core" transform="translate(0, 32)"><rect class="ctrl" x="3.75" width="22.5" height="15"></rect><rect x="32" width="15" height="15" data-phy-coords="{ 2, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 2, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 2, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 2, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 2, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 2, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 2, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 2, 7 }" class="lane" data-state="inactive"></rect></g><g class="core" transform="translate(0, 48)"><rect class="ctrl" x="3.75" width="22.5" height="15"></rect><rect x="32" width="15" height="15" data-phy-coords="{ 3, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 3, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 3, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 3, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 3, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 3, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 3, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 3, 7 }" class="lane" data-state="inactive"></rect></g><!-- could put this above, if we knew how tall an em was (or translated negatively?) --><text y="65"><tspan x="0" dy="1em">physical {core, SIMT lane}:</tspan><tspan class="physical">N/A</tspan><tspan x="0" dy="1.2em">logical {workgroup, invocation}:</tspan><tspan class="logical">N/A</tspan></text></svg><output class="error" style="display: block; background-color: #fcebeb;"></output><output class="stdio" style="display: block; background-color: lightgray; white-space: pre;"></output></div></body></html>

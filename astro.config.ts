@@ -7,12 +7,12 @@ export default defineConfig({
 	srcDir: ".",
 	integrations: [rawFiles(".spvasm", ".tcf")],
 	server: (_) => ({
-		headers: {
-			// required for shared buffers (used by emscripten to implement pthreads)
-			'access-control-allow-origin': 'same-origin',
-			'cross-origin-opener-policy': 'same-origin',
-			'cross-origin-embedder-policy': 'require-corp'
-		}
+		// headers: {
+		// 	// required for shared buffers (used by emscripten to implement pthreads)
+		// 	'access-control-allow-origin': 'same-origin',
+		// 	'cross-origin-opener-policy': 'same-origin',
+		// 	'cross-origin-embedder-policy': 'require-corp'
+		// }
 	}),
 	vite: {
 		server: {
