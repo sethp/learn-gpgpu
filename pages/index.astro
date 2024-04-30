@@ -52,12 +52,12 @@ const tcfChunks = tcfContents.split(splits[0]);
 		<title>gpgpu playground</title>
 		<script>
 			// TODO
-			/// <zreference types="emscripten" />
 			import { Arena } from '../lib/binding/arena';
 			import { Ptr } from '../lib/binding/ptr';
 			import { BitSet } from '../lib/bitset';
 			import { States, ExecutionUniverse } from '../lib/executionUniverse';
 			import { Talvos$$Module, Talvos$$Params } from '../lib/talvos';
+			import type { MainModule } from '../wasm/talvos-wasm';
 			import talvos from '../wasm/talvos-wasm';
 
 			const rootEl = document.getElementById('talvos')!;
@@ -169,11 +169,30 @@ const tcfChunks = tcfContents.split(splits[0]);
 				];
 			})();
 
-			const [validate_wasm, exception, assertion, { /*run, debug,*/ Session }] = (function (p: Promise<any>) {
+			// What are we doing here? We're pulling the Promise<MainModule> inside out, so we can _synchronously_
+			// install handlers that then individually (a)wait for the module to be loaded/instantiated.
+			//
+			// i.e. the difference between
+			// ```
+			// var foo = await module();
+			// element.onclick = foo.func;
+			// ```
+			// and
+			// ```
+			// var foo = module();
+			// element.onclick = async function () { (await foo).func() }
+			// ```
+			//
+			// is that the former will prevent the handler from begin installed until the module is loaded,
+			// meaning there's a window where clicking the button will do nothing.
+			const [validate_wasm, exception, assertion, getExceptionMessage, { /*run, debug,*/ Session }] = (function (
+				p: Promise<MainModule>
+			) {
 				return [
 					p.then((instance) => instance.cwrap('validate_wasm', 'boolean', ['string'])),
-					p.then((instance) => instance.cwrap('exception', null, [])),
-					p.then((instance) => instance.cwrap('assertion', null, [])),
+					p.then((instance) => instance.cwrap('exception', undefined, [])),
+					p.then((instance) => instance.cwrap('assertion', undefined, [])),
+					p.then((instance) => instance.getExceptionMessage),
 					(() => {
 						var pp = p.then(
 							({
@@ -215,7 +234,7 @@ const tcfChunks = tcfContents.split(splits[0]);
 									const addr = _malloc(size);
 									const buf = wasmMemory.buffer;
 									const ptr = new Ptr(buf, addr, size);
-									return [ptr, () => _free(ptr) as void];
+									return [ptr, () => _free(ptr.addr) as void];
 								}
 
 								function toCArgs(args: string[]) {
@@ -351,9 +370,7 @@ const tcfChunks = tcfContents.split(splits[0]);
 					})(),
 				];
 			})(talvos(Module));
-			// TODO?
-			// type Session = Awaited<typeof Session>;
-			type Session = any;
+			type Session = Awaited<typeof Session>;
 
 			// TODO this probably belongs in some prejs thing over in talvos-land
 			// @ts-ignore
@@ -362,21 +379,23 @@ const tcfChunks = tcfContents.split(splits[0]);
 			}
 
 			// TODO refactor into `withTiming` / `withExec` ?
-			function captureOutput(f: Function, qstart?: PerformanceMeasure) {
+			function captureOutput(f: Function, start?: PerformanceMeasure) {
 				stdioEl.value = '';
 				errorEl.value = '';
 				rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `...`;
 				rootEl.querySelectorAll<HTMLButtonElement>('button.exec').forEach((el) => (el.disabled = true));
-				// TODO why does `start = start ?? ...` not narrow the type here?
-				let start = qstart ?? window.performance.mark('talvos');
+				start = start ?? window.performance.mark('talvos');
 				return (async () => f())()
-					.catch((ex) => {
+					.catch(async (ex) => {
 						var message;
-						// TODO `Property 'Exception' does not exist on type 'typeof WebAssembly'.`
-						// @ts-ignore
+						// @ts-ignore TODO `Property 'Exception' does not exist on type 'typeof WebAssembly'.`
+						// e.g. ?
+						// declare namespace WebAssembly {
+						// 	interface Exception {}
+						// }
 						if (ex instanceof WebAssembly.Exception) {
 							var type;
-							[type, message] = Module.getExceptionMessage(ex);
+							[type, message] = (await getExceptionMessage)(ex);
 							message = message || `of type ${type}`;
 
 							console.error(
@@ -384,7 +403,13 @@ const tcfChunks = tcfContents.split(splits[0]);
 								ex.stack
 								/* cf. https://crbug.com/1428532 */
 							);
-							Module.decrementExceptionRefcount(ex);
+
+							// this no longer works after https://github.com/emscripten-core/emscripten/pull/21775
+							//
+							// plus, since we're not doing the save/restore dance properly,
+							// it looks like this might not even be enough: https://github.com/emscripten-core/emscripten/issues/21606
+							//
+							// Module.decrementExceptionRefcount(ex);
 						} else {
 							console.error(`in ${start.name}:`, ex);
 							message = '' + ex;

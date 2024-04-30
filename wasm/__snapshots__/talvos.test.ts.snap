@@ -1,0 +1,14 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`talvos > assertion 1`] = `[RuntimeError: unreachable]`;
+
+exports[`talvos > assertion 2`] = `"Aborted(Assertion failed: false && "hello: it's an assertion!", at: ../@fs/home/seth/Code/src/github.com/sethp/learn-gpgpu/tmp/_talvos/tools/talvos-cmd/wasm.cpp,464,assertion)"`;
+
+exports[`talvos > exception 1`] = `
+Exception {
+  "message": [
+    "std::runtime_error",
+    "hello: it's an exception!",
+  ],
+}
+`;

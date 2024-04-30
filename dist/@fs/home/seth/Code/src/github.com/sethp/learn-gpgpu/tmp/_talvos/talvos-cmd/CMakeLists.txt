@@ -26,14 +26,14 @@ if (EMSCRIPTEN)
     target_link_libraries(talvos-wasm talvos)
 
     target_compile_options(talvos-wasm PUBLIC -O0) # TODO -Og breaks emscripten exceptions lol ?
-    #target_compile_options(talvos-wasm PUBLIC -fexperimental-new-constant-interpreter) 
+    #target_compile_options(talvos-wasm PUBLIC -fexperimental-new-constant-interpreter)
 
 
     # TODO STANDALONE_WASM ?  https://github.com/emscripten-core/emscripten/blob/5b24a09de582f3943d75aa6af9be36ba719c08c0/src/settings.js#L1366
     target_link_options(talvos-wasm PUBLIC
         -sMODULARIZE
         # -sWASM_WORKERS=1
-        -sENVIRONMENT=web
+        -sENVIRONMENT=web,node
         -sEXPORT_NAME=talvos
     )
     # mutually exclusive with the above
@@ -47,8 +47,8 @@ if (EMSCRIPTEN)
     set(EXPORTED_RUNTIME_METHODS
         cwrap
 
+        getExceptionMessage
         decrementExceptionRefcount
-        getCppExceptionTag
 
         wasmExports
         ccall
@@ -73,6 +73,7 @@ if (EMSCRIPTEN)
         -sEXPORTED_RUNTIME_METHODS=${EXPORTED_RUNTIME_METHODS}
         -sEXPORT_EXCEPTION_HANDLING_HELPERS=1 # TODO `decrementExceptionRefcount' was not exported (+`getCppExceptionTag`)
         -sALLOW_BLOCKING_ON_MAIN_THREAD=0
+        --emit-tsd "$<TARGET_FILE_DIR:talvos-wasm>/talvos-wasm.d.ts"
     )
 
     target_link_options(talvos-wasm PUBLIC -sERROR_ON_WASM_CHANGES_AFTER_LINK -sWASM_BIGINT)

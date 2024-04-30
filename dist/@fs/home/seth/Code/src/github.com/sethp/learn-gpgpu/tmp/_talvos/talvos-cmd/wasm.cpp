@@ -314,8 +314,8 @@ static int __assert_bits = [] {
   return 0;
 }();
 
-// NB this'll be different on a 64-bit system; the wider pointers mean instead
-// of a split at 11/12 characters we ought to see a split at 23/24 bytes
+// TODO: it might be nice to pull this into its own test module
+//   (w/ `-sENVIRONMENT=node`?)
 static_assert(sizeof(size_t) == 4);
 #ifndef _LIBCPP_ABI_ALTERNATE_STRING_LAYOUT
 #error unknown string layout
@@ -324,7 +324,8 @@ static_assert(sizeof(size_t) == 4);
 #if _LIBCPP_ABI_VERSION != 2
 #error unknown libcpp abi
 #endif
-// static_assert(STRING_ABI)
+// NB this'll be different on a 64-bit system; the wider pointers mean instead
+// of a split at 11/12 characters we ought to see a split at 23/24 bytes
 static int __assert_sso = [] {
   // 11 chars (10+NUL) ought to fit into the small string
   std::string str("hello worl");
@@ -334,17 +335,17 @@ static int __assert_sso = [] {
   auto sstr = reinterpret_cast<__short *>(&str);
   assert(sstr->size == str.size());
   assert(!sstr->__is_long_);
-  assert(sstr->bits == 0x80);
+  assert(sstr->bits == str.size());
 
-  // but this won't
+  // but this won't fit
   std::string str2("hello world");
   assert(str2.c_str() != reinterpret_cast<char *>(&str2));
-  assert(str.capacity() >= str.length());
+  assert(str2.capacity() > str2.length());
 
   auto lstr = reinterpret_cast<__long *>(&str2);
   assert(lstr->size == str2.size());
   assert(lstr->__is_long_);
-  assert(lstr->bits == 0x8000'0000);
+  assert(lstr->bits == (0x8000'0000 | (str2.capacity() + 1)));
 
   return 0;
 }();
