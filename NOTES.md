@@ -124,3 +124,78 @@ Also, the `.dwp` produced has no `.debug_info` section (unlike the `.dwp` produc
 Also requires (/allows?) `-gsplit-dwarf` during compilation
 
 Also, the standard `-gsplit-dwarf` skeleton debuginfo is in the `.wasm` (+ visibility, at the cost of size)
+
+# vscode w/ talvos (clangd + cmake)
+
+`ComputePipeline.cpp` can't find its header tho, and `.clangd` inside of talvos reaches "outside" the project to find the SPIRV stuff (that's a different item though).
+
+Hmm, trying to generate compile_commands.json, running into trouble:
+
+```
+[cmake] -- SPIRV-Tools library: SPIRV_TOOLS_LIB-NOTFOUND
+[cmake] CMake Error at lib/talvos/CMakeLists.txt:36 (message):
+[cmake]   SPIRV-Tools library required, try setting SPIRV_TOOLS_LIBRARY_DIR.
+```
+
+Oh, I never got this working before either. Looks like somehow I accidentally my way into a compile_commands.json that worked, and never looked back?
+
+```
+(old talvos dir) $ find . -name compile_commands.json
+./build/host/compile_commands.json
+./build/emscripten/compile_commands.json
+./build/compile_commands.json
+```
+
+Did I "just" install the library? Oh! I did, that `./build` is the host build, not the emscripten build.
+
+```
+$ cmake --install build/enscripten # sic
+-- Install configuration: "RelWithDebInfo"
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/libSPIRV-Tools-opt.a
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-opt/SPIRV-Tools-optTargets.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-opt/SPIRV-Tools-optTargets-relwithdebinfo.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-opt/SPIRV-Tools-optConfig.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/libSPIRV-Tools-reduce.a
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-reduce/SPIRV-Tools-reduceTarget.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-reduce/SPIRV-Tools-reduceTarget-relwithdebinfo.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-reduce/SPIRV-Tools-reduceConfig.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/libSPIRV-Tools-link.a
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-link/SPIRV-Tools-linkTargets.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-link/SPIRV-Tools-linkTargets-relwithdebinfo.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-link/SPIRV-Tools-linkConfig.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/libSPIRV-Tools-lint.a
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-lint/SPIRV-Tools-lintTargets.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-lint/SPIRV-Tools-lintTargets-relwithdebinfo.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-lint/SPIRV-Tools-lintConfig.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/libSPIRV-Tools-diff.a
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-diff/SPIRV-Tools-diffTargets.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-diff/SPIRV-Tools-diffTargets-relwithdebinfo.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-diff/SPIRV-Tools-diffConfig.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/libSPIRV-Tools.a
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/libSPIRV-Tools-shared.a
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools/SPIRV-ToolsTarget.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools/SPIRV-ToolsTarget-relwithdebinfo.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools/SPIRV-ToolsConfig.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/bin/spirv-lesspipe.sh
+-- Installing: /home/seth/.emscripten_cache/sysroot/bin/spirv-as.js
+-- Installing: /home/seth/.emscripten_cache/sysroot/bin/spirv-dis.js
+-- Installing: /home/seth/.emscripten_cache/sysroot/bin/spirv-val.js
+-- Installing: /home/seth/.emscripten_cache/sysroot/bin/spirv-opt.js
+-- Installing: /home/seth/.emscripten_cache/sysroot/bin/spirv-cfg.js
+-- Installing: /home/seth/.emscripten_cache/sysroot/bin/spirv-link.js
+-- Installing: /home/seth/.emscripten_cache/sysroot/bin/spirv-lint.js
+-- Installing: /home/seth/.emscripten_cache/sysroot/bin/spirv-objdump.js
+-- Installing: /home/seth/.emscripten_cache/sysroot/bin/spirv-reduce.js
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-tools/SPIRV-Tools-toolsTargets.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-tools/SPIRV-Tools-toolsTargets-relwithdebinfo.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/cmake/SPIRV-Tools-tools/SPIRV-Tools-toolsConfig.cmake
+-- Installing: /home/seth/.emscripten_cache/sysroot/include/spirv-tools/libspirv.h
+-- Installing: /home/seth/.emscripten_cache/sysroot/include/spirv-tools/libspirv.hpp
+-- Installing: /home/seth/.emscripten_cache/sysroot/include/spirv-tools/optimizer.hpp
+-- Installing: /home/seth/.emscripten_cache/sysroot/include/spirv-tools/linker.hpp
+-- Installing: /home/seth/.emscripten_cache/sysroot/include/spirv-tools/instrument.hpp
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/pkgconfig/SPIRV-Tools.pc
+-- Installing: /home/seth/.emscripten_cache/sysroot/lib/pkgconfig/SPIRV-Tools-shared.pc
+```
+
+ah, and now I get a compile_commands.json and "all" is "well".

@@ -1,0 +1,7 @@
+[
+    {
+        "name": "Emscripten",
+        "toolchainFile": "/usr/lib/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+        "preferredGenerator": {"name": "Ninja"}
+    }
+]
