@@ -19,7 +19,13 @@ export default defineConfig({
 	vite: {
 		server: {
 			watch: {
-				ignored: ['**/tmp/**'],
+				ignored: [
+					'**/tmp/**',
+					'**/wasm/talvos/**',
+					'**/tools/**',
+					'**/dist/**',
+					'**/__snapshots__/**',
+				],
 			},
 		},
 	}

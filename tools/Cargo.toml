@@ -1,0 +1,16 @@
+[package]
+name = "tools"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "dwarf"
+path = "dwarf.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+gimli = "0.29.0"
+memmap2 = "0.9.4"
+object = { version = "0.35.0", features = ["wasm"] }
+typed-arena = "2.0.2"

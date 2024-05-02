@@ -1,0 +1,3 @@
+[submodule "wasm/talvos"]
+	path = wasm/talvos
+	url = https://github.com/sethp/talvos/
