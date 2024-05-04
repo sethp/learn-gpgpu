@@ -1,0 +1,173 @@
+# syntax=docker/dockerfile:1@sha256:ac85f380a63b13dfcefa89046420e1781752bab202122f8f50032edf31be0021
+FROM emscripten/emsdk@sha256:b640884dffe6ffd6270b4e61548dc2c597f01aaf2c8d7b788009cb7f4719dd20 as emscripten-base
+
+# cf. https://github.com/moby/buildkit/blob/068cf686a7e5c3254244d0acc54636f4f393611e/frontend/dockerfile/docs/syntax.md#example-cache-apt-packages
+RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -eux; \
+    apt update && apt-get --no-install-recommends install -y \
+    ninja-build \
+    ;
+# using --mount instead of rm -rf /var/lib/apt/lists/*
+
+# set some defaults
+ENV CMAKE_BUILD_TYPE=Debug \
+    CMAKE_GENERATOR=Ninja \
+    CMAKE_TOOLCHAIN_FILE=/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
+    VERBOSE=1
+
+RUN --mount=type=cache,target=/emsdk/upstream/.npm,sharing=locked \
+    npm set cache /emsdk/upstream/.npm && \
+    npm --prefix /emsdk/upstream/emscripten install
+
+FROM emscripten-base AS spirv-headers-git
+
+WORKDIR /usr/src/SPIRV-Headers
+ADD --keep-git-dir https://github.com/KhronosGroup/SPIRV-Headers.git /usr/src/SPIRV-Headers
+RUN git fetch -n --unshallow --filter=tree:0
+
+# RUN --mount=type=cache,target=/usr/src/SPIRV-Headers/build,sharing=locked \
+#     set -eux; \
+#     cmake -B build \
+#     -DCMAKE_INSTALL_PREFIX=/usr \
+#     && \
+#     cmake --build build --target install
+
+FROM emscripten-base AS spirv-tools
+
+# TODO does ccache help us here?
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -eux; \
+    apt update && apt-get --no-install-recommends install -y \
+    ccache \
+    ;
+
+# ARG TOOLS_REF=main@5bb595091b3048d20afeb37a9a193350dccd607d
+# ARG TOOLS_REF=5bb595091b3048d20afeb37a9a193350dccd607d
+
+WORKDIR /usr/src/SPIRV-Tools
+# ADD --keep-git-dir https://github.com/KhronosGroup/SPIRV-Tools.git#${TOOLS_REF} .
+# RUN git fetch -n --unshallow --filter=tree:0
+
+# COPY --link --from=spirv-headers /usr/include/spirv /usr/include/spirv
+# COPY --link --from=spirv-headers /usr/share/cmake/SPIRV-Headers /usr/share/cmake/SPIRV-Headers
+# COPY --link --from=spirv-headers /usr/share/pkgconfig/SPIRV-Headers.pc /usr/share/pkgconfig/SPIRV-Headers.pc
+
+# TODO: this still has a couple missing generated files/links:
+# ```
+# 09:43:47 AM [serve]    404      /wasm/SPIRV-Tools/build/DebugInfo.h
+# 09:43:52 AM [serve]    404 /wasm/SPIRV-Tools/build/debuginfo.insts.inc
+# 09:43:56 AM [serve]    404 /wasm/SPIRV-Tools/external/spirv-headers/include/spirv/unified1/GLSL.std.450.h
+# ```
+
+# TODO: mount in the spirv-headers too, and make the SPIRV-Tools not rw; and/or, mark the "right" parts of external as a rw cache layer, e.g.
+# --mount=type=bind,source=./SPIRV-Tools,ro \
+# --mount=type=cache,id=tools-external,target=/usr/src/SPIRV-Tools/external,rw \
+# but, that last fails because there's a CMakeLists.txt we need in external. Maybe mount in just the spirv-headers subdir?
+#
+# TODO: can we do the SPIRV-Headers thing in a separate layer, or nah?
+RUN --mount=type=cache,from=spirv-headers-git,source=/usr/src/SPIRV-Headers,target=/usr/src/SPIRV-Headers,ro \
+	--mount=type=bind,source=./SPIRV-Tools,target=.,rw \
+    <<'SCRIPT' tee /dev/stderr | bash -eux
+
+    # In order to check out the right SPIRV-Headers for the release, we have to read the DEPS file
+    IFS=@ read REPO REF < <(<<-'PYTHON' python3 -u
+Var = lambda key: vars[key]
+DEPS = open("DEPS").read()
+exec(DEPS)
+# prints something like:
+#   `https://github.com/KhronosGroup/SPIRV-Headers.git@85a1ed200d50660786c1a88d9166e871123cce39`
+print(deps["external/spirv-headers"])
+PYTHON
+    )
+
+    git -C external clone \
+      --filter=tree:0 \
+      --single-branch --no-checkout \
+      --reference $PWD/../SPIRV-Headers \
+      $REPO spirv-headers
+    git -C external/spirv-headers checkout $REF
+
+    cmake -B external/spirv-headers/build -S external/spirv-headers -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    cmake --install external/spirv-headers/build
+
+# SCRIPT
+
+# TODO
+# -gembed-source breaks wasm-sourcemap.py with:
+# ```
+# Traceback (most recent call last):
+# File "/emsdk/upstream/emscripten/tools/wasm-sourcemap.py", line 353, in <module>
+#     sys.exit(main())
+# File "/emsdk/upstream/emscripten/tools/wasm-sourcemap.py", line 325, in main
+#     entries = read_dwarf_entries(wasm_input, options)
+# File "/emsdk/upstream/emscripten/tools/wasm-sourcemap.py", line 232, in read_dwarf_entries
+#     file_path = (dir + '/' if file.group(2)[0] != '/' else '') + file.group(2)
+# IndexError: string index out of range
+# ```
+
+
+# RUN  \
+	# --mount=type=bind,source=./SPIRV-Tools,rw \
+    # <<'SCRIPT' tee /dev/stderr | bash -eux
+
+    # TODO be very careful with quoting here
+    # TODO why can I not use a multi-line thingy?
+    # PREFIX_MAP_FLAGS=()
+    # PREFIX_MAP_FLAGS+=(-fdebug-prefix-map=/emsdk/upstream/emscripten/cache/sysroot=/@fs/home/seth/.emscripten_cache/sysroot)
+    # PREFIX_MAP_FLAGS+=(-fdebug-prefix-map=/emsdk/upstream/emscripten/cache/sysroot=/@fs/foobar)
+    # PREFIX_MAP_FLAGS+=(-fdebug-prefix-map=/=/@fs/)
+
+    # using Debug here because otherwise we build with -O2 (which breaks DWARF info)
+    cmake -B build \
+      -DCMAKE_BUILD_TYPE=Debug \
+      -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+      -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+      -DCMAKE_EXPORT_COMPILE_COMMANDS=yes \
+      -DCMAKE_C_FLAGS="-gdwarf-5 -gembed-source -Og -fdebug-compilation-dir=. -ffile-prefix-map=/usr/src=../../wasm" \
+      -DCMAKE_CXX_FLAGS="-gdwarf-5 -gembed-source -Og -fdebug-compilation-dir=. -ffile-prefix-map=/usr/src=../../wasm" \
+      -DCMAKE_SHARED_LINKER_FLAGS='-sERROR_ON_WASM_CHANGES_AFTER_LINK -sWASM_BIGINT -sASSERTIONS=1' \
+      -DCMAKE_EXE_LINKER_FLAGS='-sERROR_ON_WASM_CHANGES_AFTER_LINK -sWASM_BIGINT -sASSERTIONS=1' \
+    ;
+
+    cmake --build build -- -l 20
+    cmake --install build
+SCRIPT
+
+FROM spirv-tools AS talvos
+
+# # copied from spirv-tools to get the revision from that project's DEPs
+# COPY --link --from=spirv-tools /usr/include/spirv /usr/include/spirv
+# COPY --link --from=spirv-tools /usr/share/cmake/SPIRV-Headers /usr/share/cmake/SPIRV-Headers
+# COPY --link --from=spirv-tools /usr/share/pkgconfig/SPIRV-Headers.pc /usr/share/pkgconfig/SPIRV-Headers.pc
+
+# # COPY --link --from=spirv-tools /usr/lib/pkgconfig/SPIRV-Tools-shared.pc /usr/lib/pkgconfig/SPIRV-Tools-shared.pc
+
+# COPY --link --from=spirv-tools /usr/lib/pkgconfig/SPIRV-Tools.pc /usr/lib/pkgconfig/SPIRV-Tools.pc
+# COPY --link --from=spirv-tools /usr/share/pkgconfig/SPIRV-Headers.pc /usr/share/pkgconfig/SPIRV-Headers.pc
+
+# RUN <<'SHENANIGANS' tee /dev/stderr | bash -eux
+
+#     # llvm-dwp needs to "see" the same thing that astro will see, so we lie
+
+#     # FRAGILE: tightly coupled with CMakeLists.txt yey
+#     # FRAGILE: requires load-bearing symlinks under `tmp` in the astro project
+#     mkdir -p /@fs/home/seth/Code/src/github.com/sethp/learn-gpgpu/tmp/
+#     ln -s {/usr/src/,/@fs/home/seth/Code/src/github.com/sethp/learn-gpgpu/tmp/_}SPIRV-Tools
+#     ln -s {/usr/src/,/@fs/home/seth/Code/src/github.com/sethp/learn-gpgpu/tmp/_}SPIRV-Headers
+# SHENANIGANS
+
+# These _kind of_ work, except CMake doesn't look at the flags values after the build environment is set up.
+# see: https://stackoverflow.com/a/44357387
+# and: https://cmake.org/cmake/help/latest/envvar/CFLAGS.html (via https://cmake.org/cmake/help/latest/manual/cmake-env-variables.7.html )
+# and: https://cmake.org/cmake/help/latest/variable/CMAKE_LANG_FLAGS_INIT.html#variable:CMAKE_%3CLANG%3E_FLAGS_INIT
+# ENV CFLAGS="-fdebug-compilation-dir=. -ffile-prefix-map=/usr/src=../wasm"
+# ENV CXXFLAGS="-fdebug-compilation-dir=. -ffile-prefix-map=/usr/src=../wasm"
+
+WORKDIR /usr/src/talvos
+    # --mount=type=cache,sharing=locked,target=build \
+# RUN --mount=type=bind,target=. \
+#     cmake -B build/emscripten-docker && cmake --build build/emscripten-docker --target talvos-wasm
+

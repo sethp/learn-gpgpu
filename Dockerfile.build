@@ -19,7 +19,6 @@ set -euxo pipefail
 
 declare -rA LINKS=(
 	["../styles"]="/"
-	["/tmp/talvos"]="/@fs/home/seth/Code/src/github.com/sethp/learn-gpgpu/tmp/_talvos"
 )
 
 mkdir -p public
@@ -33,10 +32,6 @@ for TARGET in ${!LINKS[@]}; do
 done
 EOS
 
-#  http://localhost:3000/@fs/home/seth/Code/src/github.com/sethp/learn-gpgpu/tmp/_talvos/lib/talvos/Block.cpp
-
-# TODO[seth]: ./tmp/_talvos_cpy is sourced from
-# `cp -r tmp/_talvos/{include,lib,tools/talvos-cmd} tmp/_talvos_cpy/`
 RUN \
 	--mount=type=bind,source=astro,target=/app/astro \
 	--mount=type=bind,source=content,target=/app/content \
@@ -46,7 +41,6 @@ RUN \
 	--mount=type=bind,source=wasm,target=/app/wasm \
 	--mount=type=bind,source=./astro.config.ts,target=/app/astro.config.ts \
 	--mount=type=bind,source=./tsconfig.json,target=/app/tsconfig.json \
-	--mount=type=bind,source=./tmp/_talvos_cpy,target=/tmp/talvos \
 	pnpm run astro build
 
 # Post-fixups

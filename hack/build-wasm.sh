@@ -46,9 +46,11 @@ done
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-./wasm/talvos/hack/build-wasm.sh "$PWD/wasm"
+[[ -v WATCH_MODE ]] || {
+	./hack/build/talvos-wasm.sh "$PWD/wasm"
 
-[[ -v WATCH_MODE ]] || exit 0;
+	exit 0;
+}
 
 watch() {
 	# via https://superuser.com/a/665208
@@ -57,14 +59,17 @@ watch() {
 
 		(
 			(
-				echo wasm/talvos/Dockerfile.emscripten
+				find hack/build -type f
+				echo wasm/CMakeLists.txt
+				echo wasm/Dockerfile.emscripten
+				find wasm/cmake -type f
 				find wasm/talvos -name 'build' -prune -o \( -name 'CMakeLists.txt' -o -name '*.cmake' \) -print
 				find wasm/talvos -name 'build' -prune -o -name '*.h' -print
 				find wasm/talvos -name '*.c' -o -name '*.cpp'
 			) \
 		| tee ${VERBOSE+/dev/stderr} \
 		) \
-		| entr -c -d -p "$0" ${VERBOSE+-v} # no --watch
+		| entr -c -d "$0" ${VERBOSE+-v} # no --watch
 
 		# via `man entr`
 		#  2       A file was added to a directory and the directory watch option was specified
@@ -72,6 +77,8 @@ watch() {
 	); do
 		[[ -v VERBOSE ]] && echo >&2 "Restarting watcher";
 	done
+
+	echo "All done! Exiting..."
 
 	# important to keep bash from executing "off the end" of the file if it's changed
 	exit

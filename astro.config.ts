@@ -19,12 +19,14 @@ export default defineConfig({
 	vite: {
 		server: {
 			watch: {
+				// see also: `--mount` list in Dockerfile.build
 				ignored: [
-					'**/tmp/**',
-					'**/wasm/talvos/**',
-					'**/tools/**',
-					'**/dist/**',
 					'**/__snapshots__/**',
+					'**/dist/**',
+					'**/hack/**',
+					'**/tmp/**',
+					'**/tools/**',
+					'**/wasm/*/**',
 				],
 			},
 		},

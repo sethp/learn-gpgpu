@@ -1,3 +1,9 @@
 [submodule "wasm/talvos"]
 	path = wasm/talvos
 	url = https://github.com/sethp/talvos/
+[submodule "wasm/SPIRV-Headers"]
+	path = wasm/SPIRV-Headers
+	url = https://github.com/KhronosGroup/SPIRV-Headers.git
+[submodule "wasm/SPIRV-Tools"]
+	path = wasm/SPIRV-Tools
+	url = https://github.com/KhronosGroup/SPIRV-Tools.git

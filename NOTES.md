@@ -21,8 +21,13 @@ git -C wasm/talvos commit -av
 git add wasm/talvos
 ```
 
-Will `git push` push both? (probably not)
+Will `git push` push both? No, confirmed it does not.
 
+Instead:
+```
+git -C wasm/talvos push
+git push
+```
 
 # entr
 
@@ -199,3 +204,105 @@ $ cmake --install build/enscripten # sic
 ```
 
 ah, and now I get a compile_commands.json and "all" is "well".
+
+# cmake "superproject" build
+
+Why do a single CMake "superproject"? The IDE tooling all wants a single `compile_commands.json`, and this seemed the most expedient way to glom them all together. The sticky part was getting the ad-hoc discovery mechanism(s) to all agree. The library part was especially strange, since it has to be a `SPIRV-Tools` magic string (that matches the target name) in "superproject" mode for CMake to understand the dependency link, but then `wasm-ld` wasn't able to find it in subproject mode. So, one more layer of indirection!
+
+Talvos was doing discovery differently than everyone else, and I couldn't figure out how to get the `find_library` call to work at all with discovering a the SPIRV-Tools as a sibling target. Luckily, (ab)using `find_project` made for a CMakeLists.txt that worked for both talvos stand-alone (with system-installed headers/tools), and also as part of the combined cmake project.
+
+Moving the build "up" a level was pretty straightforward after that:
+
+```
+   cp --verbose --update=older build/emscripten-docker/tools/talvos-cmd/talvos-wasm.* "$1"
+-> cp --verbose --update=older build/emscripten-docker/talvos/tools/talvos-cmd/talvos-wasm.* "$1"
+```
+
+(as an aside: cmake's namespacing doesn't make a lot of sense to me. Every `add_subdirectory` gets reflected in the build output, but the `target` namespace is global, at least by default?)
+
+## avoiding double-building SPIRV-Tools
+
+Is it sensible to try and have a layer-per-dependency in the docker build? I'm not sure, but I had it before I moved over to submodules for the two dependencies.
+
+This ought to be possible by preferring that `find_package` locates the already-built SPIRV-Tools instead of the sibling project. There seems to be a mode suited for this task:
+
+  https://cmake.org/cmake/help/latest/variable/CMAKE_FIND_PACKAGE_PREFER_CONFIG.html
+
+But it doesn't work on its own (it's still rebuilding SPIRV-Tools, even though libSPIRV-Tools.a is already in the sysroot). Maybe it's finding the project via https://cmake.org/cmake/help/latest/command/find_package.html#id9 ("Config Module Search Procedure") ?
+
+Once `-USPIRV-Tools_DIR` was being passed to the configure step (thanks, cache vars!), then I tried:
+
+```
+find_package(SPIRV-Tools REQUIRED NO_MODULE
+             NO_DEFAULT_PATH
+             NO_PACKAGE_ROOT_PATH
+             NO_CMAKE_PATH
+             NO_CMAKE_ENVIRONMENT_PATH
+             NO_SYSTEM_ENVIRONMENT_PATH
+             NO_CMAKE_PACKAGE_REGISTRY
+             NO_CMAKE_BUILDS_PATH
+             NO_CMAKE_SYSTEM_PATH # vs. NO_CMAKE_INSTALL_PREFIX
+             NO_CMAKE_SYSTEM_PACKAGE_REGISTRY
+             NO_CMAKE_FIND_ROOT_PATH
+)
+
+if (NOT SPIRV-Tools_DIR)
+	message(FATAL_ERROR "no SPIRV-Tools found")
+else()
+	message(STATUS "SPIRV-Tools found ${SPIRV-Tools_DIR}")
+endif()
+```
+
+which successfully failed (I've turned off all of the possible search locations). That let me bisect:
+
+```
+# find_package(SPIRV-Tools REQUIRED NO_MODULE)
+# -> found /emsdk/upstream/emscripten/cache/sysroot/lib/cmake/SPIRV-Tools
+
+# find_package(SPIRV-Tools REQUIRED NO_MODULE
+#              NO_DEFAULT_PATH
+#              NO_PACKAGE_ROOT_PATH
+#              NO_CMAKE_PATH
+#              NO_CMAKE_ENVIRONMENT_PATH
+#              NO_SYSTEM_ENVIRONMENT_PATH
+#              NO_CMAKE_PACKAGE_REGISTRY
+#              NO_CMAKE_BUILDS_PATH
+#              NO_CMAKE_SYSTEM_PATH # vs. NO_CMAKE_INSTALL_PREFIX
+#              NO_CMAKE_SYSTEM_PACKAGE_REGISTRY
+#              NO_CMAKE_FIND_ROOT_PATH
+# )
+# -> not found (expected)
+
+# find_package(SPIRV-Tools REQUIRED NO_MODULE
+#              NO_CMAKE_PACKAGE_REGISTRY
+#              NO_CMAKE_BUILDS_PATH
+#              NO_CMAKE_SYSTEM_PATH # vs. NO_CMAKE_INSTALL_PREFIX
+#              NO_CMAKE_SYSTEM_PACKAGE_REGISTRY
+#              NO_CMAKE_FIND_ROOT_PATH
+# )
+# -> not found (so, the "finder" ought to be in the other half)
+
+find_package(SPIRV-Tools REQUIRED NO_MODULE
+             NO_DEFAULT_PATH
+             NO_PACKAGE_ROOT_PATH
+             NO_CMAKE_PATH
+             NO_CMAKE_ENVIRONMENT_PATH
+             NO_SYSTEM_ENVIRONMENT_PATH
+)
+# -> not found (?!)
+```
+
+which immediately revealed there's something wacky going on in there (probably two of the options overlap, there's 10 of them and only 9 "steps" on the documentation page). But also, that neither mechanism is doing what I want because this is what they're ending up resolving to:
+
+```
+# cat /emsdk/upstream/emscripten/cache/sysroot/lib/cmake/SPIRV-Tools/SPIRV-ToolsConfig.cmake
+include(${CMAKE_CURRENT_LIST_DIR}/SPIRV-ToolsTarget.cmake)
+if(TARGET SPIRV-Tools)
+    set(SPIRV-Tools_LIBRARIES SPIRV-Tools)
+    get_target_property(SPIRV-Tools_INCLUDE_DIRS SPIRV-Tools INTERFACE_INCLUDE_DIRECTORIES)
+endif()
+```
+
+`if(TARGET SPIRV-Tools)` it just goes ahead and says "yeah, link against the sibling project": the opposite of my goal. Cool.
+
+I had been trying to avoid inventing a project-specific convention for "use find_library instead of find_project", oh well.
