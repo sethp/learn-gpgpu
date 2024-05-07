@@ -8,7 +8,7 @@
     "build": "astro check && tsc --noEmit && astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "test": "vitest",
+    "test": "vitest run",
     "vitest": "vitest"
   },
   "dependencies": {
