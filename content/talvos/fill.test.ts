@@ -48,12 +48,10 @@ describe('fill', async () => {
 	})
 
 	test('runs', async () => {
-		let module = await getContents('talvos', 'fill.spvasm');
-		let tcf = await getContents('talvos', 'fill.tcf');
 		test_entry(
-			module,
+			await getContents('talvos', 'fill.spvasm'),
 			'FILL',
-			tcf,
+			await getContents('talvos', 'fill.tcf'),
 		)
 
 		expect(stderr).to.be.empty;
@@ -80,25 +78,29 @@ describe('fill', async () => {
 		`)
 	})
 
-	// test('exception', async () => {
-	// 	let instance = await talvos();
+	test('oob_write', async () => {
+		test_entry(
+			await getContents('talvos', 'fill.spvasm'),
+			'FILL',
+			`
+BUFFER a 64 UNINIT
+DESCRIPTOR_SET 0 0 0 a
 
-	// 	expect(() => instance.ccall('exception'))
-	// 		.toThrowErrorMatchingSnapshot();
-	// })
-	// test('assertion', async () => {
-	// 	let [stdout, stderr] = ['', ''];
-	// 	let instance = await talvos({
-	// 		print: (text: any) => { stdout += text; },
-	// 		printErr: (text: any) => { stderr += text; },
-	// 	});
+DISPATCH 17 1 1
+			`
+		)
 
-	// 	expect(() => instance.cwrap('assertion')())
-	// 		.toThrowErrorMatchingSnapshot();
+		expect(stdout).to.be.empty;
+		expect(stderr).toMatchInlineSnapshot(`
+			"
+			Invalid store of 4 bytes to address 0x1000000000040 (Device scope)
+			    Entry point: %1 FILL
+			    Invocation: Global(16,0,0) Local(0,0,0) Group(16,0,0)
+			      OpStore %18 %14
 
-	// 	expect(stdout).toBe('');
-	// 	// TODO: this is sensitive to the line number of the assert
-	// 	expect(stderr).toMatchSnapshot();
-	// })
+			"
+		`);
+	})
+
 
 })
