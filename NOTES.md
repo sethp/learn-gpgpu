@@ -306,3 +306,55 @@ endif()
 `if(TARGET SPIRV-Tools)` it just goes ahead and says "yeah, link against the sibling project": the opposite of my goal. Cool.
 
 I had been trying to avoid inventing a project-specific convention for "use find_library instead of find_project", oh well.
+
+# Testing `fill.spvasm`
+
+Getting very weird stderr output:
+
+```
+line 1: Unrecognized command 'emsc'
+```
+
+Trying to debug it, but "step into" doesn't work to cross the JS->wasm boundary, at least not when invoked via the `vitest` integrated runner for running a single test. Setting a breakpoint seems to work OK, but the debugger integration isn't working so hot after that: none of the C++-y things seem to be working (lots of `use of undeclared identifier`)
+
+Still not clear why/how the stderr thing happened; I'm not setting the entrypoint (oops?) but that should be getting me an ERROR about that, not a failure to parse 'emsc' (where's that even coming from?).
+
+Oh, it's because of this:
+
+```
+diff --git a/content/talvos/fill.test.ts b/content/talvos/fill.test.ts
+index 963e2e1..e8e12c7 100644
+--- a/content/talvos/fill.test.ts
++++ b/content/talvos/fill.test.ts
+@@ -34,7 +34,7 @@ describe('fill', async () => {
+ 		// which means everything is `T | undefined`
+ 		return p.then((instance): [(...args: any[]) => any, (...args: any[]) => any] => [
+ 			instance.cwrap('validate_wasm', 'boolean', ['string']),
+-			instance.cwrap('test_entry', 'void', ['string'], ['string']),
++			instance.cwrap('test_entry', 'void', ['string', 'string']),
+ 		]);
+ 	}(talvos({
+ 		print: (text: any) => { stdout += text; },
+```
+
+So, uh, yeah: "don't get the interface wrong" I guess?
+
+## iterating on fill.spvasm
+
+AKA testing the test.
+
+Now that I've got the fill test set up to run in "continuous mode" (which requires starting a "continuous mode run" from the left-hand panel), it's time to see if I can strip away any more of the SPIR-V bits and still end up with a working program.
+
+It seems kinda strange that the vector to fill would be a global (/ static?) pointer, instead of a function argument. That being the case for the (thread-local) GlobalInvocationId makes more sense (although those names are confusing af).
+
+Also, how many layers of indirection are happening to get access to the invocation id?
+
+```
+%24 = OpAccessChain %19 %2 %const_0
+%25 = OpLoad %uint32_t %24
+```
+
+  OpAccessChain : https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#OpAccessChain
+
+so %24 is the address for a value of type %19, indexed from a compound value starting at the base (%2) with the remainder of the arguments as the operands. Kinda like https://llvm.org/docs/GetElementPtr.html
+

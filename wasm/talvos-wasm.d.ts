@@ -58,6 +58,7 @@ interface WasmModule {
   _Session_print(_0: number, _1: number, _2: number): void;
   _Session_switch(_0: number, _1: number, _2: number): void;
   _validate_wasm(_0: number): number;
+  _test_entry(_0: number, _1: number, _2: number): void;
   _run_wasm(_0: number, _1: number): number;
   _debug_wasm(_0: number, _1: number): number;
   _Session_fetch_shrubbery(_0: number, _1: number): void;

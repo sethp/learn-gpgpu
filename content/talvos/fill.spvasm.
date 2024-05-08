@@ -1,38 +1,41 @@
 ; SPIR-V
 ; Version: 1.3
-                OpCapability Shader
-                OpMemoryModel Logical GLSL450
-                OpEntryPoint GLCompute %1 "FILL" %2
-                OpDecorate %6 ArrayStride 4
-                OpMemberDecorate %7 0 Offset 0
-                OpDecorate %7 Block
-                OpDecorate %2 BuiltIn GlobalInvocationId
-                OpDecorate %8 BuiltIn WorkgroupSize
-                OpDecorate %9 DescriptorSet 0
-                OpDecorate %9 Binding 0
-    %uint32_t = OpTypeInt 32 0
-%uint32_ptr_t = OpTypePointer StorageBuffer %uint32_t
-           %6 = OpTypeRuntimeArray %uint32_t
-           %7 = OpTypeStruct %6
-          %14 = OpTypePointer StorageBuffer %7
-        %void = OpTypeVoid
-          %16 = OpTypeFunction %void
-          %17 = OpTypeVector %uint32_t 3
-          %18 = OpTypePointer Input %17
-          %19 = OpTypePointer Input %uint32_t
-          %20 = OpTypePointer Private %17
-          %21 = OpConstant %uint32_t 0
-     %const_1 = OpConstant %uint32_t 1
-        %FILL = OpConstant %uint32_t 1
-           %2 = OpVariable %18 Input
-           %8 = OpConstantComposite %17 %const_1 %const_1 %const_1
-          %22 = OpVariable %20 Private %8
-           %9 = OpVariable %14 StorageBuffer
-           %1 = OpFunction %void None %16
-          %23 = OpLabel
-          %24 = OpAccessChain %19 %2 %21
-          %25 = OpLoad %uint32_t %24
-          %31 = OpAccessChain %uint32_ptr_t %9 %21 %25
-                OpStore %31 %FILL
-                OpReturn
-                OpFunctionEnd
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %fill_fn "FILL" %gl_GlobalInvocationID
+
+  ; metadata (& pseudo-linker)
+OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+OpDecorate %_arr_uint32_t ArrayStride 4
+OpDecorate %buf DescriptorSet 0
+OpDecorate %buf Binding 0
+
+  ; types
+%uint32_t = OpTypeInt 32 0
+  %void_t = OpTypeVoid
+%gbl_id_t = OpTypeVector %uint32_t 3
+
+%_arr_uint32_t = OpTypeRuntimeArray %uint32_t
+		%void_fn_t = OpTypeFunction %void_t
+
+%_ptr_StorageBuffer_uint32_t = OpTypePointer StorageBuffer %uint32_t
+%_arr_StorageBuffer_uint32_t = OpTypePointer StorageBuffer %_arr_uint32_t
+        %_ptr_Input_gbl_id_t = OpTypePointer Input %gbl_id_t
+        %_ptr_Input_uint32_t = OpTypePointer Input %uint32_t
+
+
+  ; global arguments & constants
+              %const_0 = OpConstant %uint32_t 0
+                 %FILL = OpConstant %uint32_t 1
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_gbl_id_t Input
+                  %buf = OpVariable %_arr_StorageBuffer_uint32_t StorageBuffer
+
+  ; FILL entry point
+ %fill_fn = OpFunction %void_t None %void_fn_t
+       %0 = OpLabel
+       %2 = OpAccessChain %_ptr_Input_uint32_t %gl_GlobalInvocationID %const_0
+       %3 = OpLoad %uint32_t %2
+       %4 = OpAccessChain %_ptr_StorageBuffer_uint32_t %buf %3
+            OpStore %4 %FILL
+            OpReturn
+            OpFunctionEnd

@@ -476,7 +476,8 @@ const tcfChunks = tcfContents.split(splits[0]);
 
 				const start = window.performance.mark('debug', { detail: { text, commands } });
 				const session = new (await Session)(text, commands);
-				session.params.EntryName = 'vecadd';
+				// session.params.EntryName = 'vecadd';
+				session.params.EntryName = entryEl.selectedOptions.item(0)!.value;
 
 				const debugCtrl = rootEl.querySelector<HTMLElement>('.debugger')!;
 
