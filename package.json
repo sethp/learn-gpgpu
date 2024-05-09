@@ -11,12 +11,14 @@
     "test": "vitest run",
     "vitest": "vitest"
   },
+  "packageManager": "pnpm@8.15.2",
   "dependencies": {
-    "@astrojs/check": "^0.2.0",
-    "astro": "^3.3.2",
-    "typescript": "^5.2.2"
+    "@astrojs/check": "^0.6.0",
+    "@astrojs/starlight": "^0.22.2",
+    "astro": "^4.8.1",
+    "typescript": "^5.4.5"
   },
   "devDependencies": {
-    "vitest": "^1.5.2"
+    "vitest": "^1.6.0"
   }
 }

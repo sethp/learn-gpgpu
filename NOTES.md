@@ -358,3 +358,12 @@ Also, how many layers of indirection are happening to get access to the invocati
 
 so %24 is the address for a value of type %19, indexed from a compound value starting at the base (%2) with the remainder of the arguments as the operands. Kinda like https://llvm.org/docs/GetElementPtr.html
 
+# Documentation
+
+Where are we gonna put it? Ideally, somewhere like `docs/`, right?
+
+Astro's [starlight] seems to mostly fit the bill. It offers a simple navigation skeleton, internationalization, some halfway decent looking code blocks, and is pretty easy to get set up.
+
+One concern is that it seems to want to "own" the entire site: more "this is the documentation site, with one or two overrides/exceptions" than "this is a way to add documentation to an existing site." See also: [./content/docs/_FIXME.md](./content/docs/_FIXME.md). It seems to work for now, though.
+
+[starlight]: https://starlight.astro.build/

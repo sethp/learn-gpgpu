@@ -1,5 +1,6 @@
 body {
   background : #eee;
+	margin-top: 0;
 }
 #talvos > :first-child {
 	/* height : 500px; */
@@ -28,4 +29,33 @@ textarea {
 }
 #controls div {
 	padding-top: 0.5em;
+}
+
+nav {
+	background: #77889e65; /* color chosen by fair random die roll */
+	margin-left: -8px;
+	margin-right: -8px;
+	padding-right: 16px;
+	width: 100%;
+	display: inline-block;
+	margin-bottom: 0.5em;
+}
+
+nav ul {
+	list-style-type: none;
+	padding-left: 0;
+	margin: 0.1em;
+	margin-left: 0.4em;
+}
+
+nav li {
+	display: inline-block;
+}
+
+nav li:not(:last-child) a::after  {
+	display: inline-block;
+	color: #000;
+	content: '|';
+	font-size: 120%;
+	padding: 0 3px;
 }
