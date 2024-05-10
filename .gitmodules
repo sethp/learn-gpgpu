@@ -3,7 +3,9 @@
 	url = https://github.com/sethp/talvos/
 [submodule "wasm/SPIRV-Headers"]
 	path = wasm/SPIRV-Headers
-	url = https://github.com/KhronosGroup/SPIRV-Headers.git
+	url = https://github.com/sethp/SPIRV-Headers.git
+	branch = wasm-experimental
 [submodule "wasm/SPIRV-Tools"]
 	path = wasm/SPIRV-Tools
-	url = https://github.com/KhronosGroup/SPIRV-Tools.git
+	url = https://github.com/sethp/SPIRV-Tools
+	branch = wasm-experimental

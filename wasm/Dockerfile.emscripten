@@ -21,19 +21,6 @@ RUN --mount=type=cache,target=/emsdk/upstream/.npm,sharing=locked \
     npm set cache /emsdk/upstream/.npm && \
     npm --prefix /emsdk/upstream/emscripten install
 
-FROM emscripten-base AS spirv-headers-git
-
-WORKDIR /usr/src/SPIRV-Headers
-ADD --keep-git-dir https://github.com/KhronosGroup/SPIRV-Headers.git /usr/src/SPIRV-Headers
-RUN git fetch -n --unshallow --filter=tree:0
-
-# RUN --mount=type=cache,target=/usr/src/SPIRV-Headers/build,sharing=locked \
-#     set -eux; \
-#     cmake -B build \
-#     -DCMAKE_INSTALL_PREFIX=/usr \
-#     && \
-#     cmake --build build --target install
-
 FROM emscripten-base AS spirv-tools
 
 # TODO does ccache help us here?
@@ -44,16 +31,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ccache \
     ;
 
-# ARG TOOLS_REF=main@5bb595091b3048d20afeb37a9a193350dccd607d
-# ARG TOOLS_REF=5bb595091b3048d20afeb37a9a193350dccd607d
-
 WORKDIR /usr/src/SPIRV-Tools
-# ADD --keep-git-dir https://github.com/KhronosGroup/SPIRV-Tools.git#${TOOLS_REF} .
-# RUN git fetch -n --unshallow --filter=tree:0
-
-# COPY --link --from=spirv-headers /usr/include/spirv /usr/include/spirv
-# COPY --link --from=spirv-headers /usr/share/cmake/SPIRV-Headers /usr/share/cmake/SPIRV-Headers
-# COPY --link --from=spirv-headers /usr/share/pkgconfig/SPIRV-Headers.pc /usr/share/pkgconfig/SPIRV-Headers.pc
 
 # TODO: this still has a couple missing generated files/links:
 # ```
@@ -68,32 +46,9 @@ WORKDIR /usr/src/SPIRV-Tools
 # but, that last fails because there's a CMakeLists.txt we need in external. Maybe mount in just the spirv-headers subdir?
 #
 # TODO: can we do the SPIRV-Headers thing in a separate layer, or nah?
-RUN --mount=type=cache,from=spirv-headers-git,source=/usr/src/SPIRV-Headers,target=/usr/src/SPIRV-Headers,ro \
-	--mount=type=bind,source=./SPIRV-Tools,target=.,rw \
-    <<'SCRIPT' tee /dev/stderr | bash -eux
-
-    # In order to check out the right SPIRV-Headers for the release, we have to read the DEPS file
-    IFS=@ read REPO REF < <(<<-'PYTHON' python3 -u
-Var = lambda key: vars[key]
-DEPS = open("DEPS").read()
-exec(DEPS)
-# prints something like:
-#   `https://github.com/KhronosGroup/SPIRV-Headers.git@85a1ed200d50660786c1a88d9166e871123cce39`
-print(deps["external/spirv-headers"])
-PYTHON
-    )
-
-    git -C external clone \
-      --filter=tree:0 \
-      --single-branch --no-checkout \
-      --reference $PWD/../SPIRV-Headers \
-      $REPO spirv-headers
-    git -C external/spirv-headers checkout $REF
-
-    cmake -B external/spirv-headers/build -S external/spirv-headers -DCMAKE_BUILD_TYPE=RelWithDebInfo
-    cmake --install external/spirv-headers/build
-
-# SCRIPT
+#
+# previously, `DEPS` defined the version of SPIRV-Headers we used, which made it a lot harder
+# see: https://github.com/sethp/learn-gpgpu/blob/64f0868f809ebb97e9f7fe90c6ee6d9f8ad8b7c2/wasm/Dockerfile.emscripten#L75-L91
 
 # TODO
 # -gembed-source breaks wasm-sourcemap.py with:
@@ -109,19 +64,17 @@ PYTHON
 # ```
 
 
-# RUN  \
-	# --mount=type=bind,source=./SPIRV-Tools,rw \
-    # <<'SCRIPT' tee /dev/stderr | bash -eux
+RUN --mount=type=bind,source=./SPIRV-Headers,target=/usr/src/SPIRV-Headers,ro \
+	--mount=type=bind,source=./SPIRV-Tools,target=.,rw \
+	--mount=type=cache,target=/root/.cache/ccache \
+    <<'SCRIPT' tee /dev/stderr | bash -eux
 
-    # TODO be very careful with quoting here
-    # TODO why can I not use a multi-line thingy?
-    # PREFIX_MAP_FLAGS=()
-    # PREFIX_MAP_FLAGS+=(-fdebug-prefix-map=/emsdk/upstream/emscripten/cache/sysroot=/@fs/home/seth/.emscripten_cache/sysroot)
-    # PREFIX_MAP_FLAGS+=(-fdebug-prefix-map=/emsdk/upstream/emscripten/cache/sysroot=/@fs/foobar)
-    # PREFIX_MAP_FLAGS+=(-fdebug-prefix-map=/=/@fs/)
+    # cmake -B /usr/src/SPIRV-Headers/build -S /usr/src/SPIRV-Headers -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    # cmake --install /usr/src/SPIRV-Headers/build
 
     # using Debug here because otherwise we build with -O2 (which breaks DWARF info)
     cmake -B build \
+			-DSPIRV-Headers_SOURCE_DIR=/usr/src/SPIRV-Headers \
       -DCMAKE_BUILD_TYPE=Debug \
       -DCMAKE_C_COMPILER_LAUNCHER=ccache \
       -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
@@ -134,6 +87,8 @@ PYTHON
 
     cmake --build build -- -l 20
     cmake --install build
+
+		ccache -vs
 SCRIPT
 
 FROM spirv-tools AS talvos

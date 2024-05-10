@@ -8,7 +8,7 @@ CUDA warp ~> ??
 
 CUDA SM -> "streaming multiprocessor"
 
-CUDA software coordinates: {  [cluster], block @ { x y z }, thread @ { x y z } }
+CUDA software coordinates: {  [cluster], block @ { x y z }, thread @ { x y z } }  <--  "grid" fits somewhere in there
 CUDA hardware coordinates: { grid_id, device, SM, warp, lane } (finest granularity `focus`: warp)
 
 Talvos DSM -> descriptor set map

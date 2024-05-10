@@ -63,9 +63,9 @@ watch() {
 				echo wasm/CMakeLists.txt
 				echo wasm/Dockerfile.emscripten
 				find wasm/cmake -type f
-				find wasm/talvos -name 'build' -prune -o \( -name 'CMakeLists.txt' -o -name '*.cmake' \) -print
-				find wasm/talvos -name 'build' -prune -o -name '*.h' -print
-				find wasm/talvos -name '*.c' -o -name '*.cpp'
+				find wasm -name 'build' -prune -o \( -name 'CMakeLists.txt' -o -name '*.cmake' \) -print
+				find wasm -name 'build' -prune -o -name '*.h' -print
+				find wasm -name '*.c' -o -name '*.cpp'
 			) \
 		| tee ${VERBOSE+/dev/stderr} \
 		) \

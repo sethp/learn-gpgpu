@@ -1,0 +1,68 @@
+; SPIR-V
+; Version: 1.3
+OpCapability Shader ; TODO: Kernel?
+; OpCapability DeviceEnqueue
+OpCapability DispatchTALVOS
+; OpExtension "talvos_rt" ; TODO it'd be really nice to have this fail somehow
+OpExtension "SPV_TALVOS_dispatch"
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main_fn "main" %gl_GlobalInvocationID
+
+  ; metadata (& pseudo-linker)
+OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+OpDecorate %_arr_uint32_t ArrayStride 4
+OpDecorate %buf0 DescriptorSet 0
+OpDecorate %buf0 Binding 0
+OpDecorate %buf1 DescriptorSet 0
+OpDecorate %buf1 Binding 1
+
+  ; types
+%uint32_t = OpTypeInt 32 0
+  %void_t = OpTypeVoid
+%gbl_id_t = OpTypeVector %uint32_t 3
+
+%_arr_uint32_t = OpTypeRuntimeArray %uint32_t
+		%void_fn_t = OpTypeFunction %void_t
+
+%_ptr_StorageBuffer_uint32_t = OpTypePointer StorageBuffer %uint32_t
+%_arr_StorageBuffer_uint32_t = OpTypePointer StorageBuffer %_arr_uint32_t
+        %_ptr_Input_gbl_id_t = OpTypePointer Input %gbl_id_t
+        %_ptr_Input_uint32_t = OpTypePointer Input %uint32_t
+
+
+  ; global arguments & constants
+              %const_0 = OpConstant %uint32_t 0
+                 %FILL = OpConstant %uint32_t 1
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_gbl_id_t Input
+                 %buf0 = OpVariable %_arr_StorageBuffer_uint32_t StorageBuffer
+                 %buf1 = OpVariable %_arr_StorageBuffer_uint32_t StorageBuffer
+
+  ; main entry point
+ %main_fn = OpFunction %void_t None %void_fn_t
+       %0 = OpLabel
+			 ;%1 = OpEnqueueKernel ...
+			 OpDispatchTALVOS ;  %fill_fn 16 1 1
+
+
+            OpReturn
+            OpFunctionEnd
+
+  ; FILL entry point
+ %fill_fn = OpFunction %void_t None %void_fn_t
+      %f1 = OpLabel
+      %f2 = OpAccessChain %_ptr_Input_uint32_t %gl_GlobalInvocationID %const_0
+      %f3 = OpLoad %uint32_t %f2
+      %f4 = OpAccessChain %_ptr_StorageBuffer_uint32_t %buf0 %f3
+            OpStore %f4 %FILL
+            OpReturn
+            OpFunctionEnd
+
+  ; SERIES entry point
+ %sers_fn = OpFunction %void_t None %void_fn_t
+      %s1 = OpLabel
+      %s2 = OpAccessChain %_ptr_Input_uint32_t %gl_GlobalInvocationID %const_0
+      %s3 = OpLoad %uint32_t %s2
+      %s4 = OpAccessChain %_ptr_StorageBuffer_uint32_t %buf1 %s3
+            OpStore %s4 %s3
+            OpReturn
+            OpFunctionEnd

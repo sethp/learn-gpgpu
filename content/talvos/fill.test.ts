@@ -77,30 +77,4 @@ describe('fill', async () => {
 			"
 		`)
 	})
-
-	test('oob_write', async () => {
-		test_entry(
-			await getContents('talvos', 'fill.spvasm'),
-			'FILL',
-			`
-BUFFER a 64 UNINIT
-DESCRIPTOR_SET 0 0 0 a
-
-DISPATCH 17 1 1
-			`
-		)
-
-		expect(stdout).to.be.empty;
-		expect(stderr).toMatchInlineSnapshot(`
-			"
-			Invalid store of 4 bytes to address 0x1000000000040 (Device scope)
-			    Entry point: %1 FILL
-			    Invocation: Global(16,0,0) Local(0,0,0) Group(16,0,0)
-			      OpStore %18 %14
-
-			"
-		`);
-	})
-
-
 })

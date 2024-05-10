@@ -22,7 +22,18 @@ export default defineConfig({
 	}),
 	vite: (() => {
 		// see also: `--mount` list in Dockerfile.build for an include list mirror to these
-		const viteExcludes = ['**/__snapshots__/**', '**/dist/**', '**/hack/**', '**/tmp/**', '**/tools/**', '**/wasm/*/**']
+		const viteExcludes = [
+			'**/__snapshots__/**',
+			'**/dist/**',
+			'**/hack/**',
+			'**/tmp/**',
+			'**/tools/**',
+			'**/wasm/build/**',
+			'**/wasm/cmake/**',
+			'**/wasm/SPIRV-Headers/**',
+			'**/wasm/SPIRV-Tools/**',
+			'**/wasm/talvos/**',
+		]
 		return ({
 			server: {
 				watch: {

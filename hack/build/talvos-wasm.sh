@@ -97,6 +97,7 @@ docker run -it --rm -v "$(pwd)":/usr/src -w /usr/src \
 # ```
 
 docker run -it --rm -v "$(pwd)":/usr/src -w /usr/src \
+		--mount source=talvos-ccache,target=/root/.cache/ccache \
     "$TAG" -- \
     cmake --build build/emscripten-docker --target talvos-wasm
 

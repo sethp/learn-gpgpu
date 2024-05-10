@@ -367,3 +367,132 @@ Astro's [starlight] seems to mostly fit the bill. It offers a simple navigation 
 One concern is that it seems to want to "own" the entire site: more "this is the documentation site, with one or two overrides/exceptions" than "this is a way to add documentation to an existing site." See also: [./content/docs/_FIXME.md](./content/docs/_FIXME.md). It seems to work for now, though.
 
 [starlight]: https://starlight.astro.build/
+
+# Control Kernel
+
+- [ ] printing from `main` ? the pipes thing?
+- [ ] error handling (similar to ^) ? We can't use OpTerminate b/c we're not a fragment (??)
+- [ ] (broadly) support for "dynamic parallelism" in talvos, i.e. kernels launching other kernels
+
+## The SPIR-V native way (/ secretly: OpenCL)
+
+Implementing capabiltiy `DeviceEnqueue` implies all of:
+
+```
+OpTypeDeviceEvent ; OpTypeQueue
+OpEnqueueMarker ;
+OpEnqueueKernel ; OpGetKernelNDrangeSubGroupCount ;
+OpGetKernelNDrangeMaxSubGroupSize ; OpGetKernelWorkGroupSize ;
+OpGetKernelPreferredWorkGroupSizeMultiple ;
+OpRetainEvent ; OpReleaseEvent
+OpCreateUserEvent ; OpIsValidEvent ; OpSetUserEventStatus ;
+OpCaptureEventProfilingInfo ;
+OpGetDefaultQueue ; OpBuildNDRange
+```
+
+(and they have the OpenCL API mis-features/leaks, i.e. `OpGetDefaultQueue` might return `null` if the queue hasn't been created yet [?!], there's no non-default queues[??])
+
+Wow, [`OpEnqueueKernel`](https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#OpEnqueueKernel) looks an awful lot like [`clEnqueueNDRangeKernel`](https://registry.khronos.org/OpenCL/sdk/3.0/docs/man/html/clEnqueueNDRangeKernel.html)
+
+So, getting this working would take:
+
+- [ ] implement minimal subset
+    - [ ] `OpTypeDeviceEvent` & `OpTypeQueue`
+    - [ ] `OpBuildNDRange` ? (probably not strictly, but it would be convenient)
+    - [ ] `OpGetDefaultQueue` (or some ~equivalent/builtin extension?)
+    - [ ] `OpEnqueueKernel`
+- [ ] how to wait in main?
+  - https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#_kernel_enqueue_flags -> define when the child may launch w.r.t. the parent
+  - maybe ? https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#OpGroupWaitEvents
+  - and/or ? https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#OpControlBarrier
+
+## talvos-specific SPIR-V extensions (?)
+
+Instead, we could define the semantics to always block, eschewing the "queue" notion; combined with an implied memory barrier we could avoid confusion around different storage classes/implied cache coherency w.r.t. memory accesses. Also potentially gives us a convenient measurement hook for identifying the difference between the `main` kernel (which probably isn't going to be particularly efficient) and the target functionality.
+
+The main risks are the converse of the above; the asynchrony is what permits optimizations CPUs can't implement thanks to path dependence. By giving the Talvos simulator a more CPU-like magic mode, we muddy the waters a bit and possibly teach/develop patterns that are too expensive to implement in practice.
+
+Q: how does CUDA/`ptx` express this idea? i.e. what does an in-kernel invocation of another kernel compile down to, in CUDA-land?
+  - If we're able to identify & express those semantics, it might be a more attractive candidate for upstreaming eventually
+  - https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#independent-thread-scheduling <-- sort of relevant; late model nvidia GPUs now have PC (& stack) per thread, not just "warp" (core)
+  - ah, here it is: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#device-side-launch-from-ptx
+  - and here's some semantics:
+  - https://developer.nvidia.com/blog/cuda-dynamic-parallelism-api-principles/
+    > Grids launched with dynamic parallelism are fully nested. This means that child grids always complete before the parent grids that launch them, even if there is no explicit synchronization
+    -> implies that the invocations are (roughly) structured
+  - there's still some wrinkles, though, as in: https://stackoverflow.com/a/30794088
+    > the GPU will schedule the highest priority work but it will not pre-empt any running blocks. If the GPU is full then the compute work distribution will not be able schedule the child blocks [...] If the block that launched the work does a join operation (cudaDeviceSynchronize) [it] will pre-empt itself. The CDP scheduler will restore the parent block when the child grid has completed.
+  - Looks like closer to a talvos "invoke" extension than the opencl model
+
+
+Implementing this would require:
+
+- [x] ~~`OpExtension "talvos_rt"`~~ `OpExtension "SPV_TALVOS_dispatch"`
+  - NB: not `%talvos = OpExtInstImport "talvos.rt.v1"`, because `OpExtInstImport` is (apparently) old & busted
+  - see: https://github.com/KhronosGroup/SPIRV-Guide/blob/main/chapters/extension_overview.md
+  - cf. https://github.com/KhronosGroup/SPIRV-Registry
+  - & https://github.com/KhronosGroup/SPIRV-Guide/blob/main/chapters/creating_extension.md
+  - In fact, SPIRV-Tools is very much _not_ set up to accept any "out of band" extensions, they all are intended to go through the registry.
+- [x] `OpDispatchTALVOS ...`
+  - NB: not `%R = OpExtInst %R_ty %talvos <X> operand0, operand1, ... `, that's part of `OpExtInsImport`
+- [ ] defining operands (& overloading?)
+- [ ] constructing an example mapping back to the ocl semantics for other "client environments"
+
+
+### adding an extension, spirv-side
+
+Getting `spirv-tools` to recognize the new extension/opcode enough that Talvos could even see it took some doing; in order to experiment without needing to achieve prior consensus, we forked the SPIRV-Headers & SPIRV-Tools repos (although the latter could _probably_ have been avoided by simply ignoring `DEPS`)
+
+see ./hack/misc/spirv-add-ext.sh for a partially worked example
+
+
+### adding an extension, talvos-side
+
+The first steps are "chasing the Unimplemented abort"; e.g.
+
+```
+Unimplemented extension SPV_TALVOS_dispatch
+```
+->
+```diff
+@@ -341,7 +355,8 @@ public:
+         if (strcmp(Extension, "SPV_KHR_8bit_storage") &&
+             strcmp(Extension, "SPV_KHR_16bit_storage") &&
+             strcmp(Extension, "SPV_KHR_storage_buffer_storage_class") &&
+-            strcmp(Extension, "SPV_KHR_variable_pointers"))
++            strcmp(Extension, "SPV_KHR_variable_pointers") &&
++            strcmp(Extension, "SPV_TALVOS_dispatch"))
+         {
+           std::cerr << "Unimplemented extension " << Extension << std::endl;
+           abort();
+```
+
+After plumbing:
+
+1. the capability
+2. the extension
+3. the opcode
+
+We can successfully crash with e.g.
+
+```c++
+void Invocation::executeDispatch_Talvos(const Instruction *Inst)
+{
+  std::cerr << "oh my god it's been a long road. but we're finally home."
+            << std::endl;
+  abort();
+}
+```
+
+### Shipping the change
+
+```
+git -C wasm/talvos commit -av
+git -C wasm/SPIRV-Headers commit -av
+# edit the wasm/SPIRV-Tools/DEPS file to point to the commit ^
+git -C wasm/SPIRV-Tools commit -av
+git add -u
+git submodule foreach git push
+git ci -av
+git push
+```
