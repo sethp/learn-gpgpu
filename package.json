@@ -11,7 +11,7 @@
     "test": "vitest run",
     "vitest": "vitest"
   },
-  "packageManager": "pnpm@8.15.2",
+  "packageManager": "pnpm@9.1.0",
   "dependencies": {
     "@astrojs/check": "^0.6.0",
     "@astrojs/starlight": "^0.22.2",
