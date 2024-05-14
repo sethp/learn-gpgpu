@@ -1,0 +1,16 @@
+; SPIR-V
+; Version: 1.3
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main_fn "main"
+OpEntryPoint GLCompute %main_fn "main2"
+
+  ; types
+   %void_t = OpTypeVoid
+%void_fn_t = OpTypeFunction %void_t
+
+  ; main entry point
+ %main_fn = OpFunction %void_t None %void_fn_t
+       %0 = OpLabel
+            OpReturn
+            OpFunctionEnd

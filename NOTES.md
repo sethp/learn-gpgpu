@@ -496,3 +496,45 @@ git submodule foreach git push
 git ci -av
 git push
 ```
+
+### Implementing the actual dispatch
+
+First target: just statically invoke the FILL kernel 16x1x1 on the same device.
+
+PipelineExecutor thinks of itself as running a single task at a time, so duplicating that and accessing private fields (OOPs, amirite?) successfully gets us to:
+
+```
+Aborted(Assertion failed: Id.X < GroupSize.X * NumGroups.X && Id.Y < GroupSize.Y * NumGroups.Y && Id.Z < GroupSize.Z * NumGroups.Z, at: ../wasm/talvos/lib/talvos/PipelineExecutor.cpp,2313,doSwtch)
+```
+
+Is this "device is full" message? Let's try a smaller invocation; nope, still doesn't like it.
+
+Ah, it's because PipelineExecutor is chock full o' static & thread_local data, right. So we push a
+
+hmm, C++
+
+```c++
+  talvos::PipelineStage *Stage = new talvos::PipelineStage(
+      Dev, CurrentModule,
+      CurrentModule->getEntryPoint("FILL", 5 /*EXEC_MODEL_GLCOMPUTE*/), {});
+
+  talvos::ComputePipeline ComputePipeline(Stage);
+```
+
+vs.
+
+```c++
+  talvos::PipelineStage Stage = new talvos::PipelineStage(
+      Dev, CurrentModule,
+      CurrentModule->getEntryPoint("FILL", 5 /*EXEC_MODEL_GLCOMPUTE*/), {});
+
+  talvos::ComputePipeline ComputePipeline(&Stage);
+```
+
+with
+
+```c++
+ComputePipeline::~ComputePipeline() { delete Stage; }
+```
+
+(in fairness, the comment _did_ say that ownership will be transferred)
