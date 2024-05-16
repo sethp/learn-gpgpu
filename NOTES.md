@@ -538,3 +538,123 @@ ComputePipeline::~ComputePipeline() { delete Stage; }
 ```
 
 (in fairness, the comment _did_ say that ownership will be transferred)
+
+## revising to be (more) correct
+
+The semantics we require are:
+
+1. The data setup "completes" (e.g. tasks exit, memory effects are visible, and ...? ) before launching the "target" kernel
+
+2. We do not "overpromise" concurrency of the parent
+   > The child grid is only guaranteed to return at an implicit synchronization.
+
+3. We get the memory model right:
+   > Parent and child grids share the same global and constant memory storage, but have distinct local and shared memory.
+
+We'd also like to preserve the future possibility of:
+
+1. Concurrency between the setup kernels
+2. The ability to inspect the state _after_ the "target" kernel completes
+
+
+hmm, thoughts on "dispatch" vs. "tail launch"
+  if we "tail launch" into the target from setup, which gets invoked from main, then are we good? yes, but not when it comes time to print things.
+
+
+it seems like a "stream" is a common notion, here; and since all work executes in-order in a stream, we could do something like:
+
+  launch <S> BEFORE   -> e.g. FILL
+  launch <S> "target" -> `vecadd`
+  launch <S> AFTER    -> DUMP
+  exit main
+
+which means that the "exit main" will block until S completes, which and (working backwards) printing in AFTER will "see" the work done by the target kernel which "sees" the work from BEFORE
+
+hmm, this feels _almost_ right; in fact, we'd like the launch operation to be itself somewhat atomic, e.g. as if we inserted a marker event that gets automatically cleaned up when main exits........... oh, yeah, that's the "tail queue".
+
+Anyway, we want that, because otherwise (given 2x8 cores-by-lanes):
+
+   START: main 1x1x1 -> leaves 1x8
+    LAUNCH: FILL 16x1x1 -> schedules 1x8 of the FILL "right away"
+    LAUNCH [concurrent w/ FILL]: SERIES 16x1x1 -> main has exited? runs at 2x8; otherwise (because we still have 1x8 of FILL to run) runs at 1x8 then 1x8
+    LAUNCH [concurrent...]: vecadd 16x1x1 -> *same as above*; topology differs depending on amount/scheduling of setup work
+    ...
+  END: main -> frees up to 2x8
+
+if we only implement so called "tail launches" for now, that defers the launches until after the main exits, so:
+
+  START: main 1x1x1 -> leaves 1x8
+    LAUNCH FILL -> but doesn't start yet
+    LAUNCH SERIES -> but doesn't start yet
+    LAUNCH vecadd -> but doesn't start yet
+    LAUNCH DUMP -> but doesn't start yet
+  END: main -> frees up to 2x8
+  RUN: FILL @ 2x8
+  RUN: SERIES @ 2x8
+  ...
+
+in other words, it removes non-determinism from scheduling.
+
+
+## Scheduling
+
+TODO residency & threads
+
+### Dynamic Parallelism
+
+> The invocation and completion of child grids is properly nested, meaning that the parent grid is not considered complete until all child grids created by its threads have completed, and the runtime guarantees an implicit synchronization between the parent and child.
+ — https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#parent-and-child-grids
+
+
+> Execution of a grid is not considered complete until all launches by all threads in the grid have completed. If all threads in a grid exit before all child launches have completed, an implicit synchronization operation will automatically be triggered.
+ — https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#parent-and-child-grids
+
+> CUDA runtime operations from any thread, including kernel launches, are visible across all the threads in a grid.
+ — https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#parent-and-child-grids
+
+> As long as the outstanding launch count is less than the queue depth, the launch process will be asynchronous.
+ — https://stackoverflow.com/questions/53970187/cuda-stream-is-blocked-when-launching-many-kernels-1000
+
+
+> On compute capability 3.5 - 5.x the GPU will schedule the highest priority work but it will not pre-empt any running blocks. If the GPU is full then the compute work distribution will not be able schedule the child blocks. As parent blocks complete the child blocks will be distributed before any new parent blocks. At this point the design could still dead lock.
+ ­— https://stackoverflow.com/questions/30779451/understanding-dynamic-parallelism-in-cuda/30794088#30794088
+
+
+#### Deadlock Detection
+
+>     1. Mutual exclusion: At least one resource must be held in a non-shareable mode (we are assuming that one resource could have multiple instances); that is, only one process at a time can use the resource. Otherwise, the processes would not be prevented from using the resource when necessary. Only one process can use the resource at any given instant of time.[8]
+>     2. Hold and wait or resource holding: a process is currently holding at least one resource and requesting additional resources which are being held by other processes.
+>     3. No preemption: a resource can be released only voluntarily by the process holding it.
+>     4. Circular wait: each process must be waiting for a resource which is being held by another process, which in turn is waiting for the first process to release the resource. In general, there is a set of waiting processes, P = {P1, P2, ..., PN}, such that P1 is waiting for a resource held by P2, P2 is waiting for a resource held by P3 and so on until PN is waiting for a resource held by P1.
+>
+> These four conditions are known as the Coffman conditions from their first description in a 1971 article by Edward G. Coffman, Jr.
+— https://en.wikipedia.org/wiki/Deadlock
+
+So here, the (1) mutually exclusive resource ought to be: "excution" (block? "workgroup"? what're we calling this). Condition (2) arises from the "all of my children must complete before I can complete" (so the parent "holds" the resource the child is requesting). Condition (3) holds unless legacy `cudaDeviceSynchronize()` or (... something CM6 pre-emption? ... ); so detection falls down to (4), for cycles—which there will be just in case there is unscheduled child work and the parent gets to a sync point that prevents pre-emption (?? not exit, but... waiting on a signal or something? blocking on the stream? [unless that pre-empts?])
+
+#### Ordering
+
+> The ordering of kernel launches from the device runtime follows CUDA Stream ordering semantics. Within a grid, all kernel launches into the same stream (with the exception of the fire-and-forget stream discussed later) are executed in-order.
+
+Q: What are "CUDA Stream ordering semantics?" (is there any more there than the next sentence?)
+
+Executing in-order means launch queue, sure. But what about when multiple concurrent launches occur? Ah, next sentence:
+
+> With multiple threads in the same grid launching into the same stream, the ordering within the stream is dependent on the thread scheduling within the grid, which may be controlled with synchronization primitives such as __syncthreads().
+
+Dependent on thread scheduling makes our life easier (or much harder lol), because (1) that "just" means we push into the queue in whatever order we execute, and/or (2) that's an "arbitrary choice" point which turns into some NP-like search space.
+
+> Note that while named streams are shared by all threads within a grid, the implicit NULL stream is only shared by all threads within a thread block. If multiple threads in a thread block launch into the implicit stream, then these launches will be executed in-order. If multiple threads in different thread blocks launch into the implicit stream, then these launches may be executed concurrently.
+
+(hmm, probably shouldn't have that distinction / a "NULL" stream)
+
+>  If concurrency is desired for launches by multiple threads within a thread block, explicit named streams should be used.
+
+TODO worth making "setup" concurrent?
+  there _is_ useful parallelism there, most of the time
+  possibly: induces need for race detection?
+
+
+> There is no guarantee of concurrent execution between any number of different thread blocks on a device.
+
+(I think they mean "parallel" execution here: there's no guarantee of parallelism, but concurrency is the property that's being expressed)

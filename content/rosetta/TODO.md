@@ -34,7 +34,7 @@ SPIR-V makes no such distinction; its coordinate system is (via https://registry
 NB:
   Workgroup is ~ CUDA software "block"
 
-
+  EntryPoint (when invoked) is ~ CUDA's "grid" ?
 
 What do we call the atomic unit of parallelism?
 
