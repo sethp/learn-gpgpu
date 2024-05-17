@@ -37,7 +37,7 @@ const vis = {
 };
 
 const splits = [/\n# ENTRY.*\n/];
-const tcfContents = await getContents('talvos', 'vecadd.tcf');
+const tcfContents = await getContents('talvos', 'fill.tcf');
 
 const tcfChunks = tcfContents.split(splits[0]);
 
@@ -586,7 +586,7 @@ const tcfChunks = tcfContents.split(splits[0]);
 	<body>
 		<nav>
 			<ul>
-				<li><a href="learn-gpgpu/docs">docs/</a></li>
+				<li><a href="/learn-gpgpu/docs">docs/</a></li>
 			</ul>
 		</nav>
 		<div id="talvos">
@@ -599,7 +599,7 @@ const tcfChunks = tcfContents.split(splits[0]);
 						autocapitalize="off"
 						spellcheck="false"
 						aria-label="SPIR-V module assembly (spv_text format)"
-						wrap="off">{await getContents('talvos', 'vecadd.spvasm')}</textarea
+						wrap="off">{await getContents('talvos', 'fill_idx.spvasm')}</textarea
 					>
 				</main>
 				<aside>

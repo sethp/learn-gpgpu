@@ -1,0 +1,52 @@
+; SPIR-V
+; Version: 1.3
+OpCapability Shader  ; TODO we need this for descriptors? really?
+OpCapability Kernel
+OpMemoryModel Logical OpenCL
+
+OpEntryPoint Kernel %main_fn "main" %gl_GlobalInvocationID
+
+; TODO instead of DISPATCH, one of these:
+;OpExecutionMode %main_fn LocalSize 16 1 1
+;OpExecutionMode %main_fn GlobalSize 16 1 1
+
+; TODO[seth]: is this a spec misread in talvos? Shouldn't the DISPATCH map to local size?
+;     (or is it execution mode dependent?)
+OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+
+; TODO instead of descriptors, static allocation via `OpBufferTALVOS 64` (maybe w/ %ty? and/or name?)
+; TODO how do people pass data back & forth w/ OpenCL kernels for real?
+OpDecorate %buf0 DescriptorSet 0
+OpDecorate %buf0 Binding 0
+
+; TODO instead of `DUMP`, something like `OpDumpAtEndTALVOS %buffer_id` ?
+; 	Or perhaps that's just implied by `OpBufferTALVOS` ?
+
+  ; types
+   %void_t = OpTypeVoid
+%void_fn_t = OpTypeFunction %void_t
+ %uint32_t = OpTypeInt 32 0
+ %gbl_id_t = OpTypeVector %uint32_t 3
+
+%_arr_uint32_t = OpTypeRuntimeArray %uint32_t
+
+%_ptr_StorageBuffer_uint32_t = OpTypePointer StorageBuffer %uint32_t
+%_arr_StorageBuffer_uint32_t = OpTypePointer StorageBuffer %_arr_uint32_t
+        %_ptr_Input_gbl_id_t = OpTypePointer Input %gbl_id_t
+        %_ptr_Input_uint32_t = OpTypePointer Input %uint32_t
+
+
+  ; global arguments & constants
+                    %n = OpConstant %uint32_t 0
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_gbl_id_t Input
+                 %buf0 = OpVariable %_arr_StorageBuffer_uint32_t StorageBuffer
+
+  ; FILL_IDX entry point
+%main_fn = OpFunction %void_t None %void_fn_t
+      %0 = OpLabel
+      %2 = OpAccessChain %_ptr_Input_uint32_t %gl_GlobalInvocationID %n
+      %3 = OpLoad %uint32_t %2
+      %4 = OpAccessChain %_ptr_StorageBuffer_uint32_t %buf0 %3
+           OpStore %4 %3
+           OpReturn
+           OpFunctionEnd

@@ -15,8 +15,3 @@ DUMP UINT32 a
 # NB: a's size and the DISPATCH must agree;
 #    i.e. 16 elements == (64 bytes / (32 bits per element / 8 bits per byte))
 # a should be filled with the value of %FILL
-
-
-# also encoded in:
-#   OpDecorate %6 ArrayStride 4
-#

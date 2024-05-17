@@ -56,3 +56,5 @@ What do we call the atomic unit of parallelism?
 [7]: John L. Hennessy; David A. Patterson (1990). Computer Architecture: A Quantitative Approach (6 ed.). Morgan Kaufmann. pp. 314 ff. ISBN 9781558600690.
 
   though aktshually I couldn't find it in there at all; I was looking in the 2nd edition and it was laid out differently (and never mentioned "vectorized"); the 6th edition is from 2019 which is very much not 1990 but has ISBN 9780128119068 (for the ebook)
+
+Oh look, prior art: https://rocm.docs.amd.com/projects/HIP/en/latest/reference/terms.html#table-comparing-syntax-for-different-compute-apis
