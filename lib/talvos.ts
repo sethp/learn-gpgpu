@@ -85,7 +85,7 @@ export class _EntryPoints {
 export class Talvos$$Module {
 	constructor(public ptr: Ptr) { }
 	static get SIZE() {
-		return 104;
+		return 128;
 	}
 
 	get EntryPoints() {

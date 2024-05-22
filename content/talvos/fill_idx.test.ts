@@ -56,7 +56,7 @@ describe('fill_idx', async () => {
 		test_entry(
 			await getContents('talvos', 'fill_idx.spvasm'),
 			'main',
-			await getContents('talvos', 'fill.tcf'),
+			await getContents('talvos', 'fill_idx.tcf'),
 		)
 
 		expect(stderr).to.be.empty;

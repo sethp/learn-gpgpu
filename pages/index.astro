@@ -37,7 +37,7 @@ const vis = {
 };
 
 const splits = [/\n# ENTRY.*\n/];
-const tcfContents = await getContents('talvos', 'fill.tcf');
+const tcfContents = await getContents('talvos', 'fill_idx.tcf');
 
 const tcfChunks = tcfContents.split(splits[0]);
 

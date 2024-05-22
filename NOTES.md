@@ -596,7 +596,7 @@ if we only implement so called "tail launches" for now, that defers the launches
 in other words, it removes non-determinism from scheduling.
 
 
-## Scheduling
+### Scheduling
 
 TODO residency & threads
 
@@ -658,3 +658,273 @@ TODO worth making "setup" concurrent?
 > There is no guarantee of concurrent execution between any number of different thread blocks on a device.
 
 (I think they mean "parallel" execution here: there's no guarantee of parallelism, but concurrency is the property that's being expressed)
+
+## defining operands
+
+We need to offer either 1) a specific opcode for tail-launches, or 2) take a "stream" parameter here that must always be "tail" (for now).
+
+As of now, we know we need to take at least:
+
+1. function selector ("FILL" or "SERIES"); entry point string or %func_id ?
+  - is it fair to say that the difference between a "function" and an "entrypoint" is "who can call it?", i.e. a function that can be called _on_ the GPU from "outside" is an entrypoint, and an undecorated function cannot?
+
+2. "group size", e.g. `16x1x1` (how does this map to CUDA's grid(s)/blocks/threads?); should that be an [execution mode] decoration (implies "entry point" above), or a literal, or an ID-based operand?
+3. some mechanism for passing arguments (NB: pointers require special care)
+
+[execution mode]: https://github.com/KhronosGroup/SPIRV-Guide/blob/main/chapters/entry_execution.md#execution-mode
+
+examples:
+
+### ~1:1 with the other launch APIs
+
+```
+OpDispatchTALVOS "Tail" "FILL" <1 1 1; 16 1 1> 128kiB <fn params...>
+; or
+OpDispatchTALVOS Tail %fill_fn %g_dim %b_dim %shm_sz <fn params...>
+; or w/ `OpExecutionMode %fill_fn LocalSize 16 1 1` up at the "top"
+OpDispatchTALVOS Tail %fill_fn %shm_sz <fn params...>
+```
+
+Breaks down as:
+
+* `OpDispatchTALVOS`
+* `"Tail"` or `Tail`: the stream (queue) name
+    - This magic string maps to a special stream that does something uniqe: it launches after the exit of the currently running kernel. Currently, that's the only support target
+    - there are two "special" streams, `NULL`/default (which are subtly different configurations) and the "tail" stream (only supported on NVIDA devices). Users may create streams (up to... ?), which are named, and share different semantics
+    - The problem with `Tail` (a literal/enumerant) is that it would imply either 1) no ability to specify user streams, or 2) require overloading the operand, which can be quite confusing (i.e. if `Tail` or `NULL/``Default` meant the special streams, then `"Tail"`/`"NULL"`/`"Default"` would all mean a user-created stream that had no special semantics)
+    - A string here is a faux pas in SPIR-V land; since we'll probably refer to the same stream more than once, the aesthetic is to be compact & reference a result id instead
+    - That would require a separate opcode to set up, something like: `%nn = OpXXXTALVOS "Tail"` and/or `%nn = OpTailStreamTALVOS`. If we want to express the type for `%nn` as well, that's another e.g. `%nn_t = OpStreamTypeTALVOS`
+* `"FILL"` (an entrypoint name) / `%fill_fn`
+  - This string maps to an entrypoint name; nominally something in the user's control, but out-of-line (up at the "top" of the file where `OpEntryPoint ...`s are required to go)
+  - Again, a string is kind of a faux pas, instead we ought to use `%fn` from a `%fn = OpFunction` declaration (which may be externally linked if decorated with "Linkage Attributes")
+* `<1 1 1; 16 1 1>` (or `%g_dim %b_dim`): this is invalid SPIR-V syntax, but it represents `<grid/group dim; block dim>`
+  - `group dim` is a "multiplier" on `blocks`; balancing out the three-way constraint triangle between work size and blocks/group dim is complicated. For small examples we'd prefer to only use `blocks` as a simplifying assumption, but the need for the second one comes up relatively quickly.
+  - so, the choices here are kinda rough: `EnqueueDispatch` opts for using result ids which are constructed by e.g. `%block_dim = OpBuildNDRange %ndrange_ty ...` which requires a correctly-set-up struct type (via the usual typing opcodes) that obeys a whole lotta rules, populated by a bunch of out-of-line setup
+  - Spending a bunch of opcodes _elsewhere_ to set things up is typical of a low-level operation-based language like SPIR-V; the short-term memory/inline hinting/symbolic manipulation demands are what makes assembly programming so challenging; it's just extra unfortunate here, because the number of operations it takes to express this core concept is way too high. It's possible to learn to answer the "dimensionality?" question by scanning for/jumping to the approximate "vector setup block" and pattern matching, but the size of the ask is a mismatch with the frequency of the task, and how early it needs to be performed (~immediately).
+
+  Q: how to do vector constants in SPIR-V? Is there a more compact way than poking the values in one at a time?
+
+  - an alternative is to decorate w/ `OpExecutionMode %fill_fn LocalSize 16 1 1` (and `GlobalSize` for the other dimension, only supported for `Kernel`s), and then this operand disappears entirely. This requires all dispach'd functions to be an EntryPoint as well (but: we probably have that requirement since AMD doesn't support dynamic/nested parallelism)
+
+  - Using the decoration is a little funky, though: we'd be extending it in a very natural but also tons-of-work-to-get-working-right kind of way, and it's not at all clear that's something which can't be easily "lifted" out of Talvos
+  Q: is this ^ right? What happens if we use `Kernel` instead of `Shader`?
+    Seems to be fine, more or less—Talvos now knows about two kinds of compute-focused things to launch, but that's alright. The one big wrinkle is in figuring out how passing data into/back out of a `Kernel` is supposed to work?
+
+    Ugh, except for this: https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#_aliasing
+
+    The main thing the OpenCL memory model permits is aliasing-by-default. Hmmmm, time for a Talvos memory model?
+
+  Q: do intel's GPUs support dynamic parallelism?
+
+* `128kiB` / `%shm_sz`: the shared memory size (also probably invalid SPIR-V syntax)
+  - it's clear why the runtime would need this "as soon as possible," but it's not clear whether this ought to be a per-dispatch tune-able (would it ever make sense to dispatch the same kernel with different sizes? _maybe_ if you were doing different dimensions, right?)
+
+* `<fn params...>`: the ids (no literals) of all the parameters to the function
+  - NB: any pointers passed here must be to the "global" storage class(es), since the dispatched kernel won't have access to any of the local/"shared" memory of the invoker
+
+Does not cover:
+- non-shared-memory configuration parameters; i.e. resizing limits L1 cache usage
+- any (device-)global pointers
+
+### ducking the "streams" parameter, for now
+
+So, wrapping that up into the opcode (since it's a _special_ stream anyway)
+
+```
+; earlier: `OpExecutionMode %fill_fn LocalSize 16 1 1`
+
+OpDispatchAtEndTALVOS %fill_fn <fn params...>
+; or
+OpDispatchDeferredTALVOS %fill_fn <fn params...>
+; or
+OpDispatchTailTALVOS %fill_fn <fn params...>
+; or
+OpDispatchOnExitTALVOS %fill_fn <fn params...>
+; or
+OpDispatchLaterTALVOS %fill_fn <fn params...>
+```
+
+We're down to the question of "how do we signal that this is dispatching into the special stream that has the 'nesting' semantics
+
+
+### avoiding bad surprises with `OpExecutionMode`
+
+_not_ to be confused with "execution model"
+
+Rather than:
+
+```
+OpEntryPoint GLCompute %fill_fn "FILL" %gl_GlobalInvocationID
+OpExecutionMode %fill_fn LocalSize 16 1 1
+```
+
+We might have a better time with something like:
+
+```
+OpKernelTALVOS %fill_fn "FILL" %gl_GlobalInvocationID 16 1 1
+```
+
+we could even do length-extended overloading (which is "ok kind of overloading") to handle the other sizing too
+
+TODO is that just wrapping two opcodes in another opcode? is that worth doing?
+TODO elsewise, write a test for `OpExecutionModeId` (dynamic paralellism lol)
+
+
+### big oof
+
+```
+Initializer
+Indicates that this entry point is a module initializer.
+```
+
+&
+
+```
+Finalizer
+Indicates that this entry point is a module finalizer.
+```
+
+I wonder if that could take the place of the dispatch op.
+
+## `OpExecutionGlobalSizeTALVOS` (stepping back from full dispatch for a moment)
+
+Instead, let's try doing something smaller and adding a peer of `OpExecutionMode` for setting the global size, called ~~`OpGlobalSizeTalvos`~~ `OpExecutionGlobalSizeTALVOS`
+
+Did the same as above to add it to the spirv.core.grammar.json, but then the validation started failing. First it was something ~ ID has not yet been declared, then ~ must be in a block, then finally:
+
+```
+error: 7: Invalid use of function result id '1[%1]'.
+  OpExecutionGlobalSizeTALVOS %1 16 1 1
+```
+
+For each, searching for the message (e.g. "Invalid use of function result id") would yield a block of code, like:
+
+
+```c++
+  for (auto& pair : inst->uses()) {
+    const auto* use = pair.first;
+    if (std::find(acceptable.begin(), acceptable.end(), use->opcode()) ==
+            acceptable.end() &&
+        !use->IsNonSemantic() && !use->IsDebugInfo()) {
+      return _.diag(SPV_ERROR_INVALID_ID, use)
+             << "Invalid use of function result id " << _.getIdName(inst->id())
+             << ".";
+    }
+  }
+```
+
+and then it was just a matter of taking a different branch, i.e. adding `spv::Op::OpExecutionGlobalSizeTALVOS` to the end of the "acceptable" declaration:
+
+```diff
+diff --git a/source/val/validate_function.cpp b/source/val/validate_function.cpp
+index 639817fe..9bd52993 100644
+--- a/source/val/validate_function.cpp
++++ b/source/val/validate_function.cpp
+@@ -86,7 +86,8 @@ spv_result_t ValidateFunction(ValidationState_t& _, const Instruction* inst) {
+       spv::Op::OpGetKernelPreferredWorkGroupSizeMultiple,
+       spv::Op::OpGetKernelLocalSizeForSubgroupCount,
+       spv::Op::OpGetKernelMaxNumSubgroups,
+-      spv::Op::OpName};
++      spv::Op::OpName,
++      spv::Op::OpExecutionGlobalSizeTALVOS};
+   for (auto& pair : inst->uses()) {
+     const auto* use = pair.first;
+     if (std::find(acceptable.begin(), acceptable.end(), use->opcode()) ==
+```
+
+At this point we're back in the "Unimplemented ..." pipe (as above).
+
+## `OpBufferTALVOS`
+
+Idea is to replace:
+
+```tcf
+BUFFER a 64 UNINIT
+DESCRIPTOR_SET 0 0 0 a
+
+# ...
+
+DUMP UINT32 a
+```
+
+and
+
+```spirv
+OpDecorate %buf0 DescriptorSet 0
+OpDecorate %buf0 Binding 0
+
+; ...
+
+%_arr_uint32_t = OpTypeRuntimeArray %uint32_t
+%_arr_StorageBuffer_uint32_t = OpTypePointer StorageBuffer %_arr_uint32_t
+
+; ...
+
+%buf0 = OpVariable %_arr_StorageBuffer_uint32_t StorageBuffer
+```
+
+with something like:
+
+```spirv
+%_arr_uint32_t = OpTypeRuntimeArray %uint32_t
+
+%buf0 = OpBufferTALVOS 64 %_arr_uint32_t StorageBuffer "a"
+```
+
+and have Talvos automagically DUMP all (named) buffers after execution.
+
+TBD:
+
+- [x] Should we have the %_arr_StorageBuffer_uint32_t type as well?
+  - [~] Or can we build that up from the `OpBufferTALVOS` arguments? (should we?)
+- [ ] maybe we have an `OpBufferTypeTALVOS` ? Or a `BufferTALVOS` storage class?
+
+We do "need" it, because else we see:
+
+```
+error: 25: The Base <id> '13[%13]' in OpAccessChain instruction must be a pointer.
+  %17 = OpAccessChain %_ptr_StorageBuffer_uint %13 %16
+```
+
+so something needs to be an `OpTypePointer`, and it's probably not worth overloading the whole result type machinery to special case just `OpBufferTALVOS` to return a pointer-wrapped type.
+
+We still might want an `OpBufferTypeTALVOS` and/or a special storage class; those would both restrict the type argument in about the same way, so it's not clear what the buffer type would give us.
+
+The main benefits of being explicit here is:
+1. We can invoke it with some capability other than `Shader`
+2. It's less surprising than overloading SharedBuffer with dump behavior (?), and it's a trivial remapping to change to the SharedBuffer storage class get it working outside Talvos.
+
+And potentially:
+
+3. We might add an optional flags parameter to control talvos-specific behaviors; too soon to say if that's really useful though.
+
+
+- [ ] should we leave the `OpVariable` thing as-is ...
+  - [ ] and just decorate the buffer with a (mostly) non-semantic `OpBufferTALVOS` ?
+  - [ ] and just literally decorate with an entirely non-semantic `OpDecorate %buf0 BufferTALVOS` ?
+
+Well, we had to fudge the order, at least, and will probabably have to do the `_StorageBuffer_` type bits. Too bad, `StorageBuffer` requires `OpCapability Shader` & is kind of semantically redundant.
+
+Perhaps instead, a `BufferTALVOS` _StorageClass_ w/ `OpName %... "a"` ?
+
+### (sort of) aside: what the heck is a `OpAccessChain` ?
+
+```
+; given %buf0 ty is `uint32_t[]*` (in StorageBuffer)
+; and %3 is a uint32_t offset
+%4 = OpAccessChain %_ptr_StorageBuffer_uint32_t %buf0 %3
+```
+
+%4 is a ptr to a uint32_t, aka `uint32_t*`, offset into the _array_ by %3 "steps"? .... how?
+
+Ok, so if `buf0` is `0x1000`, this breaks down to roughly:
+
+   0x1000     ; "base"
+  +  (4       ; sizeof(uint32_t)
+      * %3)   ; element-wise offset
+  ---------
+   0x103c     ; when %3 == 15
+
+Which, when interpreted as a `uint32_t *` sure could be right...
+
+why does this feel weird? because `uint32_t[]*` ought to be an alternate spelling of `uint32_t**`, which means we ought to have something like `0x1040` in `buf0`, which points to a 8-wide slot containing `0x1000`; so maybe OpAccessChain contains an implicit deref on its first argument? i.e. it's not `(base) + offset`, it's `*(base) + offset`?

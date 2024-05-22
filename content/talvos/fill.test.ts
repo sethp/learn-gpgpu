@@ -18,7 +18,7 @@ async function getContents(c: Collection, f: Id) {
 	return file!.data.contents;
 }
 
-describe('fill_idx', async () => {
+describe('fill', async () => {
 	let [stdout, stderr] = ['', ''];
 
 	beforeEach(() => {
