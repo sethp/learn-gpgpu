@@ -39,7 +39,7 @@ done
 	FILES=(
 		"$0"
 		"$PREFIX"/wasm/SPIRV-Headers/include/spirv/unified1/spirv.core.grammar.json
-		$(find "$PREFIX"/wasm/SPIRV-Headers/tools -type f)
+		$(find "$PREFIX"/wasm/SPIRV-Headers/tools -name build -prune -o -type f -print)
 	)
 	# also don't export IFS; but nobody does that either (right?)
 	<<<"${FILES[*]}" exec entr "$0"
