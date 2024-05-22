@@ -80,6 +80,15 @@ Idea: redraw the `<textarea>` as having multiple "layers" that can be scrubbed t
   OpStore %4 %3   ; %4 <ptr to elem 0 in arr at 0x1000> = %3 <0>
 ```
 
+Idea: show "motion" of a vector slot by printing out the before/after of the array slot "around" the OpStore
+
+This is how I would've (did?) learn this; by `printf` to map the symbolic reasoning to a concrete example
+
+And/or: step debugger that steps over the OpStore, and a graphical visual representation "flashes" to indicate the writes
+
+    [ 0 ] [ 1 ] [ 2 ] [ 3 ] [ 4 ] [ 5 ]
+
+
 *Q*: How is it possible to identify which elements were written? How many times?
 
 fixme: talvos ought to track uninitialized/never-written memory (and possibly written-but-not-read). Right now it's happily printing out whatever happened to be in the heap at that address, which makes it really hard to tell what slots were written to and which ones weren't.
