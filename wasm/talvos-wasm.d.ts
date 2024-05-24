@@ -46,11 +46,14 @@ declare namespace RuntimeExports {
     let HEAPU64: any;
 }
 interface WasmModule {
+  _assertion(): void;
   _Session__create__(_0: number, _1: number): number;
   _Session__destroy__(_0: number): void;
   _Session__params_ref(_0: number): number;
   _Session__module_ref(_0: number): number;
+  _Session__device_ref(_0: number): number;
   _Session_run(_0: number): void;
+  _Session_dumpBuffers(_0: number): void;
   _Session_start(_0: number, _1: number): void;
   _Session_printContext(_0: number): void;
   _Session_step(_0: number, _1: number, _2: number): number;
@@ -59,11 +62,11 @@ interface WasmModule {
   _Session_switch(_0: number, _1: number, _2: number): void;
   _validate_wasm(_0: number): number;
   _test_entry(_0: number, _1: number, _2: number): void;
+  _test_entry_no_tcf(_0: number): void;
   _run_wasm(_0: number, _1: number): number;
   _debug_wasm(_0: number, _1: number): number;
   _Session_fetch_shrubbery(_0: number, _1: number): void;
   _exception(): void;
-  _assertion(): void;
   _free(_0: number): void;
   _malloc(_0: number): number;
 }

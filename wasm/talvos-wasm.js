@@ -28,7 +28,7 @@ var readyPromise = new Promise((resolve, reject) => {
   readyPromiseResolve = resolve;
   readyPromiseReject = reject;
 });
-["_malloc","_free","getExceptionMessage","$incrementExceptionRefcount","$decrementExceptionRefcount","_memory","_Session__create__","_Session__destroy__","_Session__params_ref","_Session__module_ref","_Session_run","_Session_start","_Session_printContext","_Session_step","_Session_continue","_Session_print","_Session_switch","_validate_wasm","_test_entry","_run_wasm","_debug_wasm","_Session_fetch_shrubbery","_exception","_assertion","___indirect_function_table","onRuntimeInitialized"].forEach((prop) => {
+["_malloc","_free","getExceptionMessage","$incrementExceptionRefcount","$decrementExceptionRefcount","_memory","_assertion","_Session__create__","_Session__destroy__","_Session__params_ref","_Session__module_ref","_Session__device_ref","_Session_run","_Session_dumpBuffers","_Session_start","_Session_printContext","_Session_step","_Session_continue","_Session_print","_Session_switch","_validate_wasm","_test_entry","_test_entry_no_tcf","_run_wasm","_debug_wasm","_Session_fetch_shrubbery","_exception","___indirect_function_table","onRuntimeInitialized"].forEach((prop) => {
   if (!Object.getOwnPropertyDescriptor(readyPromise, prop)) {
     Object.defineProperty(readyPromise, prop, {
       get: () => abort('You are getting ' + prop + ' on the Promise object, instead of the instance. Use .then() to get called back with the instance, see the MODULARIZE docs in src/settings.js'),
@@ -4768,11 +4768,14 @@ var wasmImports = {
 };
 var wasmExports = createWasm();
 var ___wasm_call_ctors = createExportWrapper('__wasm_call_ctors', 0);
+var _assertion = Module['_assertion'] = createExportWrapper('assertion', 0);
 var _Session__create__ = Module['_Session__create__'] = createExportWrapper('Session__create__', 2);
 var _Session__destroy__ = Module['_Session__destroy__'] = createExportWrapper('Session__destroy__', 1);
 var _Session__params_ref = Module['_Session__params_ref'] = createExportWrapper('Session__params_ref', 1);
 var _Session__module_ref = Module['_Session__module_ref'] = createExportWrapper('Session__module_ref', 1);
+var _Session__device_ref = Module['_Session__device_ref'] = createExportWrapper('Session__device_ref', 1);
 var _Session_run = Module['_Session_run'] = createExportWrapper('Session_run', 1);
+var _Session_dumpBuffers = Module['_Session_dumpBuffers'] = createExportWrapper('Session_dumpBuffers', 1);
 var _Session_start = Module['_Session_start'] = createExportWrapper('Session_start', 2);
 var _Session_printContext = Module['_Session_printContext'] = createExportWrapper('Session_printContext', 1);
 var _Session_step = Module['_Session_step'] = createExportWrapper('Session_step', 3);
@@ -4781,11 +4784,11 @@ var _Session_print = Module['_Session_print'] = createExportWrapper('Session_pri
 var _Session_switch = Module['_Session_switch'] = createExportWrapper('Session_switch', 3);
 var _validate_wasm = Module['_validate_wasm'] = createExportWrapper('validate_wasm', 1);
 var _test_entry = Module['_test_entry'] = createExportWrapper('test_entry', 3);
+var _test_entry_no_tcf = Module['_test_entry_no_tcf'] = createExportWrapper('test_entry_no_tcf', 1);
 var _run_wasm = Module['_run_wasm'] = createExportWrapper('run_wasm', 2);
 var _debug_wasm = Module['_debug_wasm'] = createExportWrapper('debug_wasm', 2);
 var _Session_fetch_shrubbery = Module['_Session_fetch_shrubbery'] = createExportWrapper('Session_fetch_shrubbery', 2);
 var _exception = Module['_exception'] = createExportWrapper('exception', 0);
-var _assertion = Module['_assertion'] = createExportWrapper('assertion', 0);
 var _fflush = createExportWrapper('fflush', 1);
 var _free = Module['_free'] = createExportWrapper('free', 1);
 var _malloc = Module['_malloc'] = createExportWrapper('malloc', 1);

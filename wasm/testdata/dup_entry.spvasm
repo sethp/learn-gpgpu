@@ -11,6 +11,6 @@ OpEntryPoint GLCompute %main_fn "main2"
 
   ; main entry point
  %main_fn = OpFunction %void_t None %void_fn_t
-       %0 = OpLabel
+       %1 = OpLabel
             OpReturn
             OpFunctionEnd

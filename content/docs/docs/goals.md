@@ -19,7 +19,7 @@ Given the `fill_idx` SPIR-V program loaded into the editor:
 
   ; FILL_IDX entry point
 %main_fn = OpFunction %void_t None %void_fn_t
-      %0 = OpLabel
+      %1 = OpLabel
       %2 = OpAccessChain %_ptr_Input_uint32_t %gl_GlobalInvocationID %n
       %3 = OpLoad %uint32_t %2
       %4 = OpAccessChain %_ptr_StorageBuffer_uint32_t %buf0 %3

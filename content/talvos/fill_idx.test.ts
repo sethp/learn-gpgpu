@@ -39,7 +39,12 @@ describe('fill_idx', async () => {
 		// which means everything is `T | undefined`
 		return p.then((instance): [(...args: any[]) => any, (...args: any[]) => any] => [
 			instance.cwrap('validate_wasm', 'boolean', ['string']),
-			instance.cwrap('test_entry', 'void', ['string', 'string', 'string']),
+			function () {
+				const wasm_test_entry = instance.cwrap('test_entry_no_tcf', 'void', ['string'])
+				return function (text: string) {
+					return wasm_test_entry(text)
+				}
+			}()
 		]);
 	}(talvos({
 		print: (text: any) => { stdout += text + '\n'; /* console.log(text) */ },
@@ -55,8 +60,6 @@ describe('fill_idx', async () => {
 	test('runs', async () => {
 		test_entry(
 			await getContents('talvos', 'fill_idx.spvasm'),
-			'main',
-			await getContents('talvos', 'fill_idx.tcf'),
 		)
 
 		expect(stderr).to.be.empty;

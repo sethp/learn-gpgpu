@@ -1,6 +1,9 @@
+import { eagerDeref } from "./binding";
 import { Ptr } from "./binding/ptr";
 import { UTF8ArrayToString, stringToUTF8Array } from "./binding/strings";
-import { std$$string } from "./stlBinding";
+import { std$$optional, std$$string, std$$vector } from "./stlBinding";
+
+const LITTLE_ENDIAN = true; // yay booleans
 
 export class Talvos$$Params {
 	constructor(public ptr: Ptr) { }
@@ -32,53 +35,26 @@ export class Talvos$$EntryPoint {
 
 // std::vector<talvos::EntryPoint *>
 // --> Iterable<Talvos$$EntryPoint>
-export class _EntryPoints {
+export class _EntryPoints extends std$$vector(eagerDeref(Talvos$$EntryPoint)) {
+}
+
+export class Talvos$$Buffer {
 	constructor(public ptr: Ptr) { }
 	static get SIZE() {
-		return 12;
+		return 32;
 	}
 
-	// ok so teknically there's no guarantee as to how a std::vector stores its state, and it sure could change at some point.
-	// The way libc++ developers expect us to adopt that change is by re-compiling, which means `clang` looks at their snazzy new definition (that stores up to N elements inline or whatever) and recomputes all the various accessors and so on based on that new information.
-	// This, obviously, is not being computed by clang based on the `libc++` defintion; but it is being computed by me (Seth) by looking at the definition used by the emscripten build.
-	// Am I a good enough compiler to understand a pair[^1] of pointers and emulate clang's behavior? I guess we'll see!
-	//
-	// [^1]: well, triplet, but we're ignoring capacity (and allocators) for now.
-	// cf. https://stackoverflow.com/a/52337100/151464
-	get(idx: number) {
-		const [start, end] = [
-			this.ptr.deref(0 * Ptr.SIZE, /* size */ undefined, /* littleEndian */ true),
-			this.ptr.deref(1 * Ptr.SIZE, /* size */ undefined, /* littleEndian */ true),
-		];
-		const elemSize = Ptr.SIZE;
-		const n = (end.addr - start.addr) / elemSize;
-		if (idx < 0 || idx > n) {
-			throw new Error(`out of bounds access: for index ${idx} with elements [0, ${n}]`);
-		}
-		return new Talvos$$EntryPoint(
-			start.deref(idx * Ptr.SIZE, Talvos$$EntryPoint.SIZE, /* littleEndian */ true)
-		);
+	get Id() {
+		return this.ptr.data.getUint32(0, LITTLE_ENDIAN);
 	}
 
-	[Symbol.iterator]() {
-		const [start, end] = [
-			this.ptr.deref(0 * Ptr.SIZE, /* size */ undefined /* defined by end */, /* littleEndian */ true),
-			this.ptr.deref(1 * Ptr.SIZE, /* size */ 0, /* littleEndian */ true),
-		];
-		const elemSize = Ptr.SIZE;
-		var itr = start;
-		return {
-			next() {
-				if (itr.addr >= end.addr) return { done: true, value: undefined as never };
+	get Size() {
+		return this.ptr.data.getUint32(8, LITTLE_ENDIAN);
+	}
 
-				const ret = {
-					done: false,
-					value: new Talvos$$EntryPoint(itr.deref(0, Talvos$$EntryPoint.SIZE, /* littleEndian */ true)),
-				};
-				itr = itr.slice(elemSize);
-				return ret;
-			},
-		};
+	get Name() {
+		const rTy = std$$optional(std$$string);
+		return new (rTy)(this.ptr.slice(16, 16 + rTy.SIZE));
 	}
 }
 
@@ -88,7 +64,97 @@ export class Talvos$$Module {
 		return 128;
 	}
 
+	get Buffers() {
+		return new (std$$vector(Talvos$$Buffer))(this.ptr.slice(116, 116 + std$$vector.SIZE));
+	}
+
 	get EntryPoints() {
 		return new _EntryPoints(this.ptr.slice(40, 40 + _EntryPoints.SIZE));
 	}
 }
+
+class Talvos$$Memory$$Alloc {
+	constructor(public ptr: Ptr) { }
+	static get SIZE() {
+		return 16;
+	}
+
+	get NumBytes(): bigint {
+		return this.ptr.data.getBigUint64(0, LITTLE_ENDIAN);
+	}
+
+	get Data(): Ptr {
+		return this.ptr.deref(8, Number(this.NumBytes), LITTLE_ENDIAN)
+	}
+}
+
+export class Talvos$$Memory {
+	constructor(public ptr: Ptr) { }
+	static get SIZE() {
+		return 2456;
+	}
+
+	// TODO[seth]: it would be nice, at some point, to think about how to bind this to the C++ impl
+	// (unfortunately, that means making the whole enchilada async, don't it?)
+	// is there any way to late-bind the method impls?
+
+	// TODO[seth]: wrap device-side addresses in a type? and/or distinguish device-side `Ptr`s somehow?
+	// uh oh, number isn't precise enough lololol; I guess that solves that (kinda)
+
+	// cf. `Memory::load` (which `memcpy`s the data)
+	deref(Addr: bigint, Size: number): Ptr {
+		const BUFFER_BITS = 16n;
+		const OFFSET_BITS = 48n;
+
+		const Id = Addr >> OFFSET_BITS;
+		const Offset = Number(Addr & BigInt.asUintN(64, (2n ** 64n - 1n) >> BUFFER_BITS));
+
+		const Alloc = this.Allocs.get(Number(Id));
+		console.assert(Offset + Size <= Alloc.NumBytes)
+
+		return Alloc.Data.slice(Offset, Size);
+	}
+
+	private get Allocs() {
+		return new (std$$vector(Talvos$$Memory$$Alloc))(this.ptr.slice(2432, 2432 + std$$vector.SIZE))
+	}
+
+}
+
+export class Talvos$$Object {
+	constructor(public ptr: Ptr) { }
+	static get SIZE() {
+		return 20;
+	}
+
+	get Data(): Ptr {
+		return this.ptr.deref(4, undefined /* TODO the type knows */, LITTLE_ENDIAN)
+	}
+}
+
+export class Talvos$$PipelineExecutor {
+	constructor(public ptr: Ptr) { }
+	static get SIZE() {
+		return 272;
+	}
+
+	get Objects() {
+		return new (std$$vector(Talvos$$Object))(this.ptr.slice(32, 32 + std$$vector.SIZE))
+	}
+}
+
+export class Talvos$$Device {
+	constructor(public ptr: Ptr) { }
+	static get SIZE() {
+		return 112;
+	}
+
+	get GlobalMemory() {
+		return new Talvos$$Memory(this.ptr.deref(16, Talvos$$Memory.SIZE, LITTLE_ENDIAN));
+	}
+
+	get PipelineExecutor() {
+		return new Talvos$$PipelineExecutor(this.ptr.deref(32, Talvos$$PipelineExecutor.SIZE, LITTLE_ENDIAN));
+	}
+}
+

@@ -1,4 +1,4 @@
-import type { Ptr } from "./binding/ptr";
+import { LITTLE_ENDIAN, type HasAbi, Ptr } from "./binding";
 
 var Decoder = new TextDecoder('utf8');
 
@@ -41,15 +41,15 @@ export class std$$string {
 	}
 
 	get data(): Ptr {
-		return this.__is_long ? this.ptr.deref(0, this.length, true) : this.ptr.slice(0, this.length);
+		return this.__is_long ? this.ptr.deref(0, this.length, LITTLE_ENDIAN) : this.ptr.slice(0, this.length);
 	}
 
 	get length() {
-		return this.__is_long ? this.ptr.data.getUint32(4, true) : (this.ptr.data.getUint8(11) & 0x7f);
+		return this.__is_long ? this.ptr.data.getUint32(4, LITTLE_ENDIAN) : (this.ptr.data.getUint8(11) & 0x7f);
 	}
 
 	get capacity() {
-		return this.__is_long ? this.ptr.data.getUint32(8, true) ^ 0x8000_0000 : 10;
+		return this.__is_long ? this.ptr.data.getUint32(8, LITTLE_ENDIAN) ^ 0x8000_0000 : 10;
 	}
 
 
@@ -59,5 +59,88 @@ export class std$$string {
 
 	get [Symbol.toStringTag]() {
 		return `std::string(${this.asString})`;
+	}
+}
+
+// std::vector<T>
+export function std$$vector(T: HasAbi) {
+	return class {
+		static get T() {
+			return T;
+		}
+		static get SIZE(): number {
+			return std$$vector.SIZE;
+		}
+		constructor(public ptr: Ptr) { }
+
+		// ok so teknically there's no guarantee as to how a std::vector stores its state, and it sure could change at some point.
+		// The way libc++ developers expect us to adopt that change is by re-compiling, which means `clang` looks at their snazzy new definition (that stores up to N elements inline or whatever) and recomputes all the various accessors and so on based on that new information.
+		// This, obviously, is not being computed by clang based on the `libc++` defintion; but it is being computed by me (Seth) by looking at the definition used by the emscripten build.
+		// Am I a good enough compiler to understand a pair[^1] of pointers and emulate clang's behavior? I guess we'll see!
+		//
+		// [^1]: well, triplet, but we're ignoring capacity (and allocators) for now.
+		// cf. https://stackoverflow.com/a/52337100/151464
+		get(idx: number) {
+			const [start, end] = [
+				this.ptr.deref(0 * Ptr.SIZE, /* size */ undefined, /* littleEndian */ true),
+				this.ptr.deref(1 * Ptr.SIZE, /* size */ undefined, /* littleEndian */ true),
+			];
+			const elemSize = T.SIZE;
+			const n = (end.addr - start.addr) / elemSize;
+			if (idx < 0 || idx > n) {
+				throw new Error(`out of bounds access: for index ${idx} with elements [0..${n})`);
+			}
+			const offset = idx * elemSize;
+			return new T(
+				start.slice(offset, offset + elemSize)
+			);
+		}
+
+		[Symbol.iterator]() {
+			const [start, end] = [
+				this.ptr.deref(0 * Ptr.SIZE, /* size */ undefined /* defined by end */, /* littleEndian */ true),
+				this.ptr.deref(1 * Ptr.SIZE, /* size */ 0, /* littleEndian */ true),
+			];
+			const elemSize = T.SIZE;
+			var itr = start;
+			return {
+				next() {
+					if (itr.addr >= end.addr) return { done: true, value: undefined as never };
+
+					const ret = {
+						done: false,
+						value: new T(itr.slice(0, elemSize)),
+					};
+					itr = itr.slice(elemSize);
+					return ret;
+				},
+			};
+		}
+	}
+}
+std$$vector.SIZE = 12;
+
+// std::optional<T>
+export function std$$optional(T: HasAbi) {
+	return class {
+		static get T() {
+			return T;
+		}
+		static get SIZE(): number {
+			console.assert(T == std$$string)
+			// TODO this is actually the T-aligned value `T + 1`
+			return 4 + T.SIZE;
+		}
+		constructor(public ptr: Ptr) { }
+
+		// cf. https://github.com/llvm/llvm-project/blob/f49247129f3e873841bc6c3fec4bdc7c9d6f1dd7/libcxx/include/optional#L285-L289
+		get __engaged_() {
+			return !!(this.ptr.data.getUint8(T.SIZE) & 0x01)
+		}
+
+		deref() {
+			if (!this.__engaged_) return undefined;
+			return new T(this.ptr.slice(0, T.SIZE));
+		}
 	}
 }

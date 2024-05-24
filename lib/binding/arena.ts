@@ -1,9 +1,5 @@
 import type { Ptr } from "./ptr";
 
-/// the size_t(ype), i.e. representing the size (length) of a range of memory
-export type size_t = number;
-
-
 // //        offset v
 // //   [==================] ->
 // //   [===========|======] ->

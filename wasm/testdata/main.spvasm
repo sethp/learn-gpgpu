@@ -40,7 +40,7 @@ OpDecorate %buf1 Binding 1
 
   ; main entry point
  %main_fn = OpFunction %void_t None %void_fn_t
-       %0 = OpLabel
+       %1 = OpLabel
 			 			; OpFillTALVOS <param> ; fills with <param>s
 			 			OpDispatchTALVOS ;  %fill_fn 16 1 1
 						OpDispatchTALVOS ;  %sers_fn 16 1 1

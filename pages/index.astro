@@ -36,10 +36,10 @@ const vis = {
 	}),
 };
 
-const splits = [/\n# ENTRY.*\n/];
-const tcfContents = await getContents('talvos', 'fill_idx.tcf');
+// const splits = [/\n# ENTRY.*\n/];
+// const tcfContents = await getContents('talvos', 'fill_idx.tcf');
 
-const tcfChunks = tcfContents.split(splits[0]);
+// const tcfChunks = tcfContents.split(splits[0]);
 
 // nice to have
 
@@ -52,11 +52,12 @@ const tcfChunks = tcfContents.split(splits[0]);
 		<title>gpgpu playground</title>
 		<script>
 			// TODO
+			import { LITTLE_ENDIAN } from '../lib/binding';
 			import { Arena } from '../lib/binding/arena';
 			import { Ptr } from '../lib/binding/ptr';
 			import { BitSet } from '../lib/bitset';
 			import { States, ExecutionUniverse } from '../lib/executionUniverse';
-			import { Talvos$$Module, Talvos$$Params } from '../lib/talvos';
+			import { Talvos$$Device, Talvos$$Module, Talvos$$Params } from '../lib/talvos';
 			import type { MainModule } from '../wasm/talvos-wasm';
 			import talvos from '../wasm/talvos-wasm';
 
@@ -140,34 +141,100 @@ const tcfChunks = tcfContents.split(splits[0]);
 					}
 				}
 
+				function updateHardwareBlocks(e: ExecutionUniverse) {
+					// last 2 `g`s (there is something weird here...)
+					// svgEl.querySelectorAll('g:nth-last-child(-n+3) > rect').forEach((el) => el.classList.add('disabled'));
+
+					console.assert('' + e.Cores == svgEl.dataset.cores);
+					console.assert('' + e.Lanes == svgEl.dataset.lanes);
+
+					for (const [idx, el, data] of zip(
+						(function* () {
+							let i = 0;
+							while (true) {
+								yield i++;
+							}
+						})(),
+						svgEl.querySelectorAll<SVGElement>('g > .lane'),
+						e.LaneStates
+					)) {
+						console.assert(`{ ${data.PhyCoord.Core}, ${data.PhyCoord.Lane} }` == el.dataset.phyCoords);
+
+						el.dataset.state = toDOMString(data.State);
+						el.dataset.logCoords = `{ 0, (${data.LogCoord.X},${data.LogCoord.Y},${data.LogCoord.Z}) }`;
+						el.classList.toggle('selected', e.SteppedLanes.has(idx));
+					}
+				}
+
 				return [
 					(e: ExecutionUniverse) => {
-						// last 2 `g`s (there is something weird here...)
-						// svgEl.querySelectorAll('g:nth-last-child(-n+3) > rect').forEach((el) => el.classList.add('disabled'));
-
-						console.assert('' + e.Cores == svgEl.dataset.cores);
-						console.assert('' + e.Lanes == svgEl.dataset.lanes);
-
-						for (const [idx, el, data] of zip(
-							(function* () {
-								let i = 0;
-								while (true) {
-									yield i++;
-								}
-							})(),
-							svgEl.querySelectorAll<SVGElement>('g > .lane'),
-							e.LaneStates
-						)) {
-							console.assert(`{ ${data.PhyCoord.Core}, ${data.PhyCoord.Lane} }` == el.dataset.phyCoords);
-
-							el.dataset.state = toDOMString(data.State);
-							el.dataset.logCoords = `{ 0, (${data.LogCoord.X},${data.LogCoord.Y},${data.LogCoord.Z}) }`;
-							el.classList.toggle('selected', e.SteppedLanes.has(idx));
+						let errs: any[] = [];
+						// Let the updates fail independently
+						// TODO: should module, device, & memory be part of the execution universe? or not?
+						for (const f of [updateHardwareBlocks]) {
+							try {
+								f(e);
+							} catch (e) {
+								errs.push(e as any);
+							}
 						}
+
+						if (errs.length > 0) throw errs;
 					},
 					clearVis,
 				];
 			})();
+
+			const buffersEl = document.querySelector<HTMLElement>('#talvos section.buffers')!;
+			// TODO source this from inside Talvos' model
+			// TODO uninit memory
+			var lastBuffers: any = {};
+			function updateBuffers(Dev: Talvos$$Device, Mod: Talvos$$Module) {
+				buffersEl.innerHTML = '';
+				const Mem = Dev.GlobalMemory;
+				const Objs = Dev.PipelineExecutor.Objects;
+
+				for (const buf of Mod.Buffers) {
+					const figEl = document.createElement('figure');
+					const captionEl = document.createElement('figcaption');
+					captionEl.innerText = `Buffer '${buf.Name.deref()?.asString() ?? '<unnamed>'}' (${buf.Size} bytes):'`;
+					figEl.appendChild(captionEl);
+
+					const listEl = document.createElement('ol');
+
+					const addr = Objs.get(buf.Id).Data.data.getBigUint64(0, LITTLE_ENDIAN);
+					const ptr = Mem.deref(addr, 64);
+
+					// TODO: make this real
+					const size = 4;
+					const fn = (offset: number) => ptr.data.getUint32(offset, LITTLE_ENDIAN);
+
+					const last = lastBuffers['0x' + addr.toString(16)] ?? [];
+					var cur = [];
+					for (var i = 0; i <= 15; i++) {
+						const liEl = document.createElement('li');
+						liEl.innerText = cur[i] = '' + fn(i * size);
+						if (i in last && last[i] != cur[i]) liEl.dataset.prev = last[i]!;
+
+						listEl.appendChild(liEl);
+					}
+					lastBuffers['0x' + addr.toString(16)] = cur;
+					figEl.appendChild(listEl);
+
+					buffersEl.appendChild(figEl);
+				}
+				// let ptr = Mem.deref(0x2_0000_0000_0000n, 64);
+				// let ptr = Mem.deref(0x2000000000000n, 64);
+				// console.log(ptr, ptr.data.getUint32(0, true));
+
+				// for (auto &B : session.CF.Module->getBuffers())
+				// {
+				// 	uint64_t Addr = Dev.PipelineExecutor()
+				// 											.getObject(B.Id)
+				// 											.get<uint64_t>();
+				// 	dump(Mem, Addr, B);
+				// }
+			}
 
 			// What are we doing here? We're pulling the Promise<MainModule> inside out, so we can _synchronously_
 			// install handlers that then individually (a)wait for the module to be loaded/instantiated.
@@ -201,8 +268,10 @@ const tcfChunks = tcfContents.split(splits[0]);
 									Session__destroy__,
 									Session__params_ref,
 									Session__module_ref,
+									Session__device_ref,
 
 									Session_run,
+									Session_dumpBuffers,
 									Session_start,
 									Session_step,
 									Session_switch,
@@ -261,6 +330,7 @@ const tcfChunks = tcfContents.split(splits[0]);
 									laneMask!: BitSet;
 									params!: Talvos$$Params;
 									module!: Talvos$$Module;
+									device!: Talvos$$Device;
 
 									static bind(ptr: unknown) {
 										try {
@@ -269,11 +339,15 @@ const tcfChunks = tcfContents.split(splits[0]);
 											self.arena = new Arena(...heapAlloc(arenaSize));
 											self.lastOp = new ExecutionUniverse(self.arena.alloc(ExecutionUniverse.SIZE));
 											self.laneMask = new BitSet(undefined, { data: self.arena.alloc(8).data });
+
 											self.params = new Talvos$$Params(
 												new Ptr(wasmMemory.buffer, Session__params_ref(ptr), Talvos$$Params.SIZE)
 											);
 											self.module = new Talvos$$Module(
 												new Ptr(wasmMemory.buffer, Session__module_ref(ptr), Talvos$$Module.SIZE)
+											);
+											self.device = new Talvos$$Device(
+												new Ptr(wasmMemory.buffer, Session__device_ref(ptr), Talvos$$Device.SIZE)
 											);
 										} catch (ex) {
 											Session__destroy__(ptr);
@@ -283,10 +357,10 @@ const tcfChunks = tcfContents.split(splits[0]);
 										return self;
 									}
 
-									constructor(module: string, commands: string) {
+									constructor(module: string) {
 										// TODO why this dance? what does stack save/stack restore do?
 										const stack = stackSave();
-										const [arg0, arg1] = [module, commands].map(stringToUTF8OnStack) as number[];
+										const [arg0, arg1] = [module, 'EXEC'].map(stringToUTF8OnStack) as number[];
 										const ref = Session__create__(arg0, arg1);
 										// TODO wrap the restore in a finally ?
 										stackRestore(stack);
@@ -296,9 +370,14 @@ const tcfChunks = tcfContents.split(splits[0]);
 									run() {
 										Session_run(this.ptr);
 									}
+									dumpBuffers() {
+										Session_dumpBuffers(this.ptr);
+									}
 									start() {
+										lastBuffers = {};
 										Session_start(this.ptr, this.lastOp.ptr.asRef());
 										doUpdateVis(this.lastOp);
+										updateBuffers(this.device, this.module);
 									}
 									step(): number {
 										this.laneMask.clear();
@@ -308,6 +387,7 @@ const tcfChunks = tcfContents.split(splits[0]);
 										});
 										var ret = Session_step(this.ptr, this.laneMask.asRef(), this.lastOp.asRef());
 										doUpdateVis(this.lastOp);
+										updateBuffers(this.device, this.module);
 										if (ret > 0) {
 											clearVis();
 										}
@@ -447,15 +527,15 @@ const tcfChunks = tcfContents.split(splits[0]);
 
 			rootEl.querySelector<HTMLButtonElement>('button.run')!.onclick = async function () {
 				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
-				const commands = (rootEl.querySelector('.commands') as { value: string } | null)!.value;
 
-				const start = window.performance.mark('run_wasm', { detail: { text, commands } });
+				const start = window.performance.mark('run_wasm', { detail: { text } });
 				captureOutput(async () => {
-					const session = new (await Session)(text, commands);
+					const session = new (await Session)(text);
 					const entryEl = rootEl.querySelector<HTMLSelectElement>('select[name="entry"]')!;
-					session.params.EntryName = entryEl.selectedOptions.item(0)!.value;
+					session.params.EntryName = entryEl.selectedOptions.item(0)?.value ?? 'main';
 					try {
 						session.run();
+						session.dumpBuffers();
 					} finally {
 						destroy(session);
 					}
@@ -472,12 +552,11 @@ const tcfChunks = tcfContents.split(splits[0]);
 				rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `...`;
 				rootEl.querySelectorAll<HTMLButtonElement>('button.exec').forEach((el) => (el.disabled = true));
 				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
-				const commands = (rootEl.querySelector('.commands') as { value: string } | null)!.value;
 
-				const start = window.performance.mark('debug', { detail: { text, commands } });
-				const session = new (await Session)(text, commands);
+				const start = window.performance.mark('debug', { detail: { text } });
+				const session = new (await Session)(text);
 				// session.params.EntryName = 'vecadd';
-				session.params.EntryName = entryEl.selectedOptions.item(0)!.value;
+				session.params.EntryName = entryEl.selectedOptions.item(0)?.value ?? 'main';
 
 				const debugCtrl = rootEl.querySelector<HTMLElement>('.debugger')!;
 
@@ -561,7 +640,7 @@ const tcfChunks = tcfContents.split(splits[0]);
 
 				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
 
-				const s = new (await Session)(text, '');
+				const s = new (await Session)(text);
 				try {
 					console.log([...s.module.EntryPoints].map((ep) => ep.Name.asString()));
 					entryEl.innerHTML = [...s.module.EntryPoints].map((ep) => `<option>${ep.Name.asString()}</option>`).join('');
@@ -603,7 +682,14 @@ const tcfChunks = tcfContents.split(splits[0]);
 					>
 				</main>
 				<aside>
-					<section>
+					<section hidden>
+						<label
+							>ENTRY
+							<select name="entry"></select>
+						</label>
+						<hr />
+					</section>
+					<!-- <section>
 						<textarea
 							class="commands_todo_make_js_concatenate_all_the_commands inactive"
 							autocorrect="off"
@@ -614,15 +700,16 @@ const tcfChunks = tcfContents.split(splits[0]);
 							disabled
 							wrap="off">{tcfChunks[0]}</textarea
 						>
-					</section>
-					<section>
-						<label
-							>ENTRY
-							<select name="entry"></select>
-						</label>
-					</section>
-					<section>
-						<textarea
+					</section> -->
+					<output class="stdio" style="display: block; background-color: lightgray; white-space: pre;"></output>
+					<hr />
+					<section class="buffers">
+						<!-- <figure>
+							<figcaption>Buffer</figcaption>
+							<ul></ul>
+						</figure> -->
+
+						<!-- <textarea
 							class="commands"
 							style="height: 434px"
 							autocorrect="off"
@@ -631,7 +718,7 @@ const tcfChunks = tcfContents.split(splits[0]);
 							spellcheck="false"
 							aria-label="Talvos commands (tcf format)"
 							wrap="off">{tcfChunks[1]}</textarea
-						>
+						> -->
 					</section>
 				</aside>
 			</div>
@@ -807,7 +894,6 @@ const tcfChunks = tcfContents.split(splits[0]);
 			</svg>
 
 			<output class="error" style="display: block; background-color: #fcebeb;"></output>
-			<output class="stdio" style="display: block; background-color: lightgray; white-space: pre;"></output>
 		</div>
 	</body>
 	<script>

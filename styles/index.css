@@ -5,7 +5,8 @@ body {
 #talvos > :first-child {
 	/* height : 500px; */
 	display: grid;
-	grid-template-columns: 1fr 0.2fr;
+	grid-template-columns: min-content minmax(180px, 1fr);
+	justify-content: start;
 }
 #talvos > :first-child > * {
 	padding: 0 1em;
@@ -16,7 +17,8 @@ textarea.inactive {
 	height: fit-content;
 }
 textarea {
-	width : 100%;
+	/* width : 100%; */
+	width : 860px;
 	height : 500px;
 }
 #controls {
@@ -29,6 +31,10 @@ textarea {
 }
 #controls div {
 	padding-top: 0.5em;
+}
+output.stdio {
+	font-family: monospace;
+	white-space: pre;
 }
 
 nav {
@@ -58,4 +64,27 @@ nav li:not(:last-child) a::after  {
 	content: '|';
 	font-size: 120%;
 	padding: 0 3px;
+}
+
+.buffers ol {
+	counter-reset: item -1;
+	margin-left: 0;
+	padding-left: 0;
+	font-family: monospace;
+}
+
+.buffers li {
+	display: block;
+	/* margin-bottom: .5em; */
+	margin-left: 2em;
+}
+
+.buffers li::before {
+	content: ".[" counter(item) "] = ";
+	color: grey;
+	counter-increment: item
+}
+.buffers li[data-prev]::after {
+	content: " (was: " attr(data-prev) ")";
+	color: lightslategrey;
 }

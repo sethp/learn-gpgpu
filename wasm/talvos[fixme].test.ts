@@ -29,9 +29,9 @@ DISPATCH 17 1 1
 		expect(stderr).toMatchInlineSnapshot(`
 			"
 			Invalid store of 4 bytes to address 0x1000000000040 (Device scope)
-			    Entry point: %1 FILL
+			    Entry point: %5 FILL
 			    Invocation: Global(16,0,0) Local(0,0,0) Group(16,0,0)
-			      OpStore %18 %14
+			      OpStore %4 %18
 
 			"
 		`);

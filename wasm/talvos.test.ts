@@ -15,7 +15,14 @@ describe('talvos', () => {
 		let instance = await talvos();
 
 		expect(() => instance.ccall('exception'))
-			.toThrowErrorMatchingSnapshot();
+			.toThrowErrorMatchingInlineSnapshot(`
+				Exception {
+				  "message": [
+				    "std::runtime_error",
+				    "hello: it's an exception!",
+				  ],
+				}
+			`);
 	})
 	test('assertion', async () => {
 		let [stdout, stderr] = ['', ''];
@@ -25,11 +32,11 @@ describe('talvos', () => {
 		});
 
 		expect(() => instance.cwrap('assertion')())
-			.toThrowErrorMatchingSnapshot();
+			.toThrowErrorMatchingInlineSnapshot(`[RuntimeError: unreachable]`);
 
 		expect(stdout).toBe('');
 		// TODO: this is sensitive to the line number of the assert
-		expect(stderr).toMatchSnapshot();
+		expect(stderr).toMatchInlineSnapshot(`"Aborted(Assertion failed: false && "hello: it's an assertion!", at: ../wasm/talvos/tools/talvos-cmd/wasm.cpp,12,assertion)"`);
 	})
 	test('main kernel', async () => {
 		let [stdout, stderr] = ['', ''];
