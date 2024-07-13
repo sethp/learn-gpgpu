@@ -58,3 +58,20 @@ What do we call the atomic unit of parallelism?
   though aktshually I couldn't find it in there at all; I was looking in the 2nd edition and it was laid out differently (and never mentioned "vectorized"); the 6th edition is from 2019 which is very much not 1990 but has ISBN 9780128119068 (for the ebook)
 
 Oh look, prior art: https://rocm.docs.amd.com/projects/HIP/en/latest/reference/terms.html#table-comparing-syntax-for-different-compute-apis
+
+
+
+CTA is "cooperative thread array" ( https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cooperative-thread-arrays )
+
+we're calling that something approximately ~ "invocation", or apparently "global workgroup" per
+
+    GlobalInvocationId
+
+        Decorating a variable with the GlobalInvocationId built-in decoration will make that variable contain the location of the current invocation within the global workgroup. Each component is equal to the index of the local workgroup multiplied by the size of the local workgroup plus LocalInvocationId.
+
+— https://registry.khronos.org/vulkan/specs/1.3/html/vkspec.html#spirvenv
+
+
+PTX's "state space" is <~> SPIR-V's "storage class", yeah?
+
+  (and both are ~ segmented addressing base, but with more cache implications than that suggests)

@@ -928,3 +928,274 @@ Ok, so if `buf0` is `0x1000`, this breaks down to roughly:
 Which, when interpreted as a `uint32_t *` sure could be right...
 
 why does this feel weird? because `uint32_t[]*` ought to be an alternate spelling of `uint32_t**`, which means we ought to have something like `0x1040` in `buf0`, which points to a 8-wide slot containing `0x1000`; so maybe OpAccessChain contains an implicit deref on its first argument? i.e. it's not `(base) + offset`, it's `*(base) + offset`?
+
+oh, wait, no: `uint32_t[][]` is different from `uint32_t[]*` which is a different beast than `uint32_t**` (https://stackoverflow.com/questions/917783/how-do-i-work-with-dynamic-multi-dimensional-arrays-in-c#comment729159_918121) ; the C standard requires `[][]` to be contiguous, but obviously `**` has no such requirement.
+
+
+# visualizing wide vector processors
+
+A single "slot" in a SIMT vector computation brings together all of:
+
+1. An operation
+1. A mask
+1. (vector) register operands
+1. An implicit "offset" (and/or "base" ?)
+
+Sometimes the register is sourced from memory, as in the result of a previous `OpLoad`.
+
+  e.g. https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#special-registers
+
+    %tid is a 4"d" vector (4 components, but the 4th component is always 0)
+      in `FILL_IDX`, one of its components is what we want to fill the value with (usually the first)
+
+      ranges from [ 0, 0, 0 ] to [ %ntid.x ,  %ntid.y ,  %ntid.z ]
+
+    distinct from %warpid (which is the "physical" id "inside" the "core")
+
+Is there anything else? Let's work some examples:
+
+  FILL_IDX (type erased)
+
+      %n = OpConstant %uint32_t 0
+
+      ; ex. 1
+
+      %2 = OpAccessChain <ty> %gl_GlobalInvocationID %n
+      %3 = OpLoad <ty> %2
+
+      ; ex. 2
+      %4 = OpAccessChain <ty> %buf0 %3
+           OpStore %4 %3
+
+## operands
+
+%gl_globalInvocationID points to a magical memory area that's distinct per-lane (the "base"/"offset") and roughly laid out like:
+
+```
+  core | | lane offset ->
+offset v |           0              1
+     O     [ x  y  z ]    [ x  y  z ]
+```
+
+in "3d" (w/ 32-byte values for each of the components)
+
+So for %2, we're taking the component (%n) and adding it to the base to get the x/y/z "dim".
+
+What does that mean in a SIMT context? Two interpretations:
+
+1. %gl_GlobalInvocationID is "dynamically" derived as ("local" mem block base) + some offset specific to the variable itself; i.e. for 16-byte (4x4 byte) coordinates relative to a thread mem base of 0x1000 this might look like:
+
+  @ core 0 ~ tp vreg is
+    [
+      0x1000    # lane 0
+      0x1010    # lane 1
+      0x1020
+      ...
+    ]
+
+1. (talvos current model) %gl_GlobalInvocationID is a lane ("invocation")-specific memory address: reads from it produce different values, lane-to-lane.
+
+
+This seems to be roughly the differnce between PTX's ["generic addressing"][ptx-gen-addr] and
+
+[ptx-gen-addr]: https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#generic-addressing
+
+From the former:
+
+  > The state spaces [...] are modeled as windows within the generic address space [...] defined by a window base and a window size that is equal to the size of the corresponding state space. A generic address maps to global memory unless it falls within the window for const, local, or shared memory. [...] a generic address maps to an address in the underlying state space by subtracting the window base from the generic address.
+
+(or, conversely, the address for a given state space maps to the global addressing scheme by adding the window base)
+
+From the latter:
+
+  > The address is an offset in the state space in which the variable is declared.
+
+(good ol' segmented addressing comes back again lolol)
+
+So, yeah: we can think of there being a lane-specific "base" (a few, actually, one per "state space"/"storage class") that gets added to the address when loading.
+
+  Note: Talvos actually does model this, just not user-visibly; since it allocates a new "private" memory structure for each invocation, we could conceptually treat the base of _that_ object as (approximately) the segmented address base.
+
+*Q*: why does this matter / what is it modeling?
+  It appears that we're doing this for cache coherence reasons & read/write coalescing; if we have to be explicit about which writes have what visiblity relative to other lanes/cores, there's a pretty natural mapping to L1/L2/L3 caches from there, with no requirement for those caches to be in any way coherent.
+
+*Q*: compare/contrast a lane-focused model of "thread registers" and "local result values" etc. vs. an e.g. core-specific model of vector registers ?
+
+
+  - how memory do work?
+
+    like, when I want to go populate a whole vreg in a batch access, there's either:
+
+    1. issue one (masked) strided vector load (rvv takes this approach: https://rvv-isadoc.readthedocs.io/en/latest/load_and_store.html )
+
+      i.e. make an explicit request to the memory subsystem to populate the whole register in a batch load, so it knows 1) the start, 2) the total size, and 3) the stride (and thus, alignment?) all at once.
+
+    2. issue a buncha little individual loads, and expect someone else to observe the pattern and coalesce them into a strided memory access of a particular width (this seems to be ~ the model that PTX takes; kinda-sorta SPIR-V too, but SPIR-V also has decorations for strides so that's a thing)
+
+
+    Oh, I see, this is a whole _thing_: https://stackoverflow.com/questions/56966466/memory-coalescing-vs-vectorized-memory-access
+
+    Very interesting all around, but especially some good comments:
+
+      > Characterization of memory coalescing as a "runtime optimization" isn't really correct. It is much more like the default execution model of the GPU. Divergence is what happens whenever an instruction can't be executed in lock-step fashion across a warp and that is what happens when a memory instruction can't be serviced in a single transaction
+      — https://stackoverflow.com/questions/56966466/memory-coalescing-vs-vectorized-memory-access#comment100471270_56966466
+
+      &
+
+      > The memory controller looks at the actual addresses and determines which can be grouped together into specific cachelines or memory segments, and then issues the requests to those lines/segments. Since the addresses indicated by each thread in the warp cannot be known until runtime (in the general case) this activity cannot be pre-computed at compile time.
+      — https://stackoverflow.com/questions/56966466/memory-coalescing-vs-vectorized-memory-access#comment100483129_56966466
+
+    These, especially taken together, suggest to me that it's possible to "miss the train" for certain access patterns and have some of the data back for a subset of the operations sooner than the rest.
+
+    But, crucially, that somehow the threads will continue to execute individually? (especially, apparently, on late model GPUs with "independent thread scheduling").
+
+    That's a pretty big difference from a vector processing unit, where the load instruction won't retire until _all_ of the data's loaded.
+
+      > Yes, memory-coalescing basically does at runtime what short-vector CPU SIMD does at compile time, within a single "core". That's because CPU SIMD is done very differently in general where you have wide fixed-width execution units, rather than GPU-style multiple execution units that can each handle one scalar, and be flexibly driven for data that's contiguous or not.
+      — https://stackoverflow.com/questions/56966466/memory-coalescing-vs-vectorized-memory-access#comment100479736_56968091
+
+    So, yeah, there is a duality here: but also a significant difference between SIMT and SIMD. It might be worth doing a compare/contrast here?
+
+      > I like to think of a Titan Xp as having only 120 physical cores, each operating on 128-byte vector registers [...] CUDA just gives us the illusion of having 3840 cores.
+      —https://stackoverflow.com/questions/56966466/memory-coalescing-vs-vectorized-memory-access#comment100498411_56968091
+
+      & rejoinder
+
+      > Why illusion? They are physical. CUDA doesn't guantee to use all of them (see occupancy) because of restrictions (being available registers, one of them, if not the most important). So you have 120 SM, each with common load/store units capable to optimize memory accesses when instructions (by the mean of warps) access concurrently subsequent memory locations (and not only).
+      —https://stackoverflow.com/questions/56966466/memory-coalescing-vs-vectorized-memory-access#comment100505179_56968091
+
+
+    Both models are useful: the coarser "it's just a vector processor" and the finer "the load/store units can optimize (some) noncontiguous access patterns" (but cf. the CUDA C programming guide, which warns against non-unit stride accesses).
+
+    So there's a priority question, here:
+
+
+  - also, thread-local scheduling
+    (but, perhaps now PC is just a vreg?)
+
+## operations
+
+For most operations ("instructions"), we can get away with using their result code
+
+### (answered) How many no-result-id operations are there?
+
+As of now, 113. (there are 736 total opcodes)
+
+via `<./wasm/SPIRV-Headers/include/spirv/unified1/spirv.core.grammar.json jq -r '.instructions|map(select((.operands//[])|map(.kind=="IdResult")|any|not))|.[].opname' | sort`, they are:
+
+```
+OpAssumeTrueKHR
+OpAtomicFlagClear
+OpAtomicStore
+OpBeginInvocationInterlockEXT
+OpBranch
+OpBranchConditional
+OpCapability
+OpCaptureEventProfilingInfo
+OpCommitReadPipe
+OpCommitWritePipe
+OpConstantCompositeContinuedINTEL
+OpControlBarrier
+OpControlBarrierArriveINTEL
+OpControlBarrierWaitINTEL
+OpCooperativeMatrixStoreKHR
+OpCooperativeMatrixStoreNV
+OpCopyMemory
+OpCopyMemorySized
+OpDecorate
+OpDecorateId
+OpDecorateString
+OpDecorateStringGOOGLE
+OpDemoteToHelperInvocation
+OpDemoteToHelperInvocationEXT
+OpDispatchTALVOS
+OpEmitMeshTasksEXT
+OpEmitStreamVertex
+OpEmitVertex
+OpEndInvocationInterlockEXT
+OpEndPrimitive
+OpEndStreamPrimitive
+OpEntryPoint
+OpExecuteCallableKHR
+OpExecuteCallableNV
+OpExecutionGlobalSizeTALVOS
+OpExecutionMode
+OpExecutionModeId
+OpExtension
+OpFinalizeNodePayloadsAMDX
+OpFunctionEnd
+OpGroupCommitReadPipe
+OpGroupCommitWritePipe
+OpGroupDecorate
+OpGroupMemberDecorate
+OpGroupWaitEvents
+OpHitObjectExecuteShaderNV
+OpHitObjectGetAttributesNV
+OpHitObjectRecordEmptyNV
+OpHitObjectRecordHitMotionNV
+OpHitObjectRecordHitNV
+OpHitObjectRecordHitWithIndexMotionNV
+OpHitObjectRecordHitWithIndexNV
+OpHitObjectRecordMissMotionNV
+OpHitObjectRecordMissNV
+OpHitObjectTraceRayMotionNV
+OpHitObjectTraceRayNV
+OpIgnoreIntersectionKHR
+OpIgnoreIntersectionNV
+OpImageWrite
+OpInitializeNodePayloadsAMDX
+OpKill
+OpLifetimeStart
+OpLifetimeStop
+OpLine
+OpLoopControlINTEL
+OpLoopMerge
+OpMaskedScatterINTEL
+OpMemberDecorate
+OpMemberDecorateString
+OpMemberDecorateStringGOOGLE
+OpMemberName
+OpMemoryBarrier
+OpMemoryModel
+OpMemoryNamedBarrier
+OpModuleProcessed
+OpName
+OpNoLine
+OpNop
+OpRayQueryConfirmIntersectionKHR
+OpRayQueryGenerateIntersectionKHR
+OpRayQueryInitializeKHR
+OpRayQueryTerminateKHR
+OpReleaseEvent
+OpReorderThreadWithHintNV
+OpReorderThreadWithHitObjectNV
+OpRestoreMemoryINTEL
+OpRetainEvent
+OpReturn
+OpReturnValue
+OpSamplerImageAddressingModeNV
+OpSelectionMerge
+OpSetMeshOutputsEXT
+OpSetUserEventStatus
+OpSource
+OpSourceContinued
+OpSourceExtension
+OpSpecConstantCompositeContinuedINTEL
+OpStore
+OpSubgroupBlockWriteINTEL
+OpSubgroupImageBlockWriteINTEL
+OpSubgroupImageMediaBlockWriteINTEL
+OpSwitch
+OpTerminateInvocation
+OpTerminateRayKHR
+OpTerminateRayNV
+OpTraceMotionNV
+OpTraceNV
+OpTraceRayKHR
+OpTraceRayMotionNV
+OpTypeForwardPointer
+OpTypeStructContinuedINTEL
+OpUnreachable
+OpWritePackedPrimitiveIndices4x8NV
+```
+

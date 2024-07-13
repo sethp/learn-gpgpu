@@ -20,6 +20,7 @@ async function getContents(c: Collection, f: Id) {
 // TODO: doesn't css do multiplication now? could we just say `x = width * (num prior siblings) + padding * (num prior siblings)`? should we?
 // lol sorta: https://stackoverflow.com/a/66262844 (just gotta pre-generate the identity mapping from `nth-child(n) -> --var: n` for all n we care about)
 const vis = {
+	init: 'v0',
 	lanes: {
 		width: 15,
 		height: 15,
@@ -51,7 +52,6 @@ const vis = {
 	<head>
 		<title>gpgpu playground</title>
 		<script>
-			// TODO
 			import { LITTLE_ENDIAN } from '../lib/binding';
 			import { Arena } from '../lib/binding/arena';
 			import { Ptr } from '../lib/binding/ptr';
@@ -60,6 +60,33 @@ const vis = {
 			import { Talvos$$Device, Talvos$$Module, Talvos$$Params } from '../lib/talvos';
 			import type { MainModule } from '../wasm/talvos-wasm';
 			import talvos from '../wasm/talvos-wasm';
+
+			// cf: https://stackoverflow.com/questions/14656893/css-stylesheet-scoped-to-a-single-svg-tag/62932376#62932376
+			// and: https://stackoverflow.com/a/54869164/151464 (for why we're doing everything in a callback)
+			class ShadowRootElement extends HTMLElement {
+				constructor() {
+					super();
+
+					this._p = new Promise((resolve, _) => {
+						this._resolve = resolve;
+					});
+				}
+				get connected(): Promise<void> {
+					return this._p;
+				}
+				connectedCallback() {
+					const shadowRoot = this.attachShadow({
+						mode: 'open',
+						...this.attributes,
+					});
+					shadowRoot.append(...this.childNodes);
+					this._resolve();
+				}
+
+				_p: Promise<void>;
+				_resolve!: () => void;
+			}
+			customElements.define('shadow-root', ShadowRootElement);
 
 			const rootEl = document.getElementById('talvos')!;
 
@@ -84,7 +111,20 @@ const vis = {
 				errorEl.value = '' + event.reason;
 			});
 
-			const svgEl = document.querySelector<SVGElement>('#talvos svg')!;
+			const svgEl = new Promise<SVGElement>(async (resolve, reject) => {
+				// TODO we can do better, but...
+				const roots = document.querySelectorAll<ShadowRootElement>('#talvos shadow-root');
+				await Promise.all([...roots].map((el) => el.connected));
+
+				for (const el of roots) {
+					const tgt = el.shadowRoot!.querySelector<SVGElement>('svg.vis0');
+					if (tgt) {
+						resolve(tgt);
+						return;
+					}
+				}
+				reject('el not found');
+			});
 			// this part is................. well, it's a prototype
 			const [doUpdateVis, clearVis] = (() => {
 				// via https://matyasfodor.com/blog/efficient-zip#how-javascript-could-do-it
@@ -103,8 +143,8 @@ const vis = {
 					}
 				}
 
-				const clearVis = () => {
-					svgEl.querySelectorAll<SVGElement>('.lane').forEach((el) => {
+				const clearVis = async () => {
+					(await svgEl).querySelectorAll<SVGElement>('.lane').forEach((el) => {
 						el.classList.remove('disabled', 'selected');
 						el.dataset.state = 'inactive';
 						delete el.dataset.logCoords;
@@ -141,12 +181,12 @@ const vis = {
 					}
 				}
 
-				function updateHardwareBlocks(e: ExecutionUniverse) {
+				async function updateHardwareBlocks(e: ExecutionUniverse) {
 					// last 2 `g`s (there is something weird here...)
 					// svgEl.querySelectorAll('g:nth-last-child(-n+3) > rect').forEach((el) => el.classList.add('disabled'));
 
-					console.assert('' + e.Cores == svgEl.dataset.cores);
-					console.assert('' + e.Lanes == svgEl.dataset.lanes);
+					console.assert('' + e.Cores == (await svgEl).dataset.cores);
+					console.assert('' + e.Lanes == (await svgEl).dataset.lanes);
 
 					for (const [idx, el, data] of zip(
 						(function* () {
@@ -155,7 +195,7 @@ const vis = {
 								yield i++;
 							}
 						})(),
-						svgEl.querySelectorAll<SVGElement>('g > .lane'),
+						(await svgEl).querySelectorAll<SVGElement>('g > .lane'),
 						e.LaneStates
 					)) {
 						console.assert(`{ ${data.PhyCoord.Core}, ${data.PhyCoord.Lane} }` == el.dataset.phyCoords);
@@ -167,7 +207,7 @@ const vis = {
 				}
 
 				return [
-					(e: ExecutionUniverse) => {
+					async (e: ExecutionUniverse) => {
 						let errs: any[] = [];
 						// Let the updates fail independently
 						// TODO: should module, device, & memory be part of the execution universe? or not?
@@ -235,6 +275,25 @@ const vis = {
 				// 	dump(Mem, Addr, B);
 				// }
 			}
+
+			const selectEl = document.querySelector<HTMLSelectElement>('#talvos #controls select')!;
+			selectEl.addEventListener('input', () => {
+				switch (selectEl.value) {
+					case 'v0':
+					case 'v1':
+						document.querySelectorAll(`#talvos .vis.${selectEl.value}`).forEach((el) => {
+							el.classList.remove('hidden');
+						});
+						document.querySelectorAll(`#talvos .vis:not(.${selectEl.value})`).forEach((el) => {
+							el.classList.add('hidden');
+						});
+						const wip = selectEl.value == 'v1';
+						document.querySelector('#talvos')!.classList.toggle('vis-wip', wip);
+						break;
+					default:
+						throw new Error(`unknown vis: ${selectEl.value}`);
+				}
+			});
 
 			// What are we doing here? We're pulling the Promise<MainModule> inside out, so we can _synchronously_
 			// install handlers that then individually (a)wait for the module to be loaded/instantiated.
@@ -379,9 +438,9 @@ const vis = {
 										doUpdateVis(this.lastOp);
 										updateBuffers(this.device, this.module);
 									}
-									step(): number {
+									async step(): Promise<number> {
 										this.laneMask.clear();
-										svgEl.querySelectorAll('.lane').forEach((el, i) => {
+										(await svgEl).querySelectorAll('.lane').forEach((el, i) => {
 											// TODO this assumes a linear indexing of lanes, but we've got per-core indexing in talvos
 											if (el.classList.contains('selected')) this.laneMask.add(i);
 										});
@@ -583,11 +642,11 @@ const vis = {
 
 				const FINISHED = 1; // TODO sync with talvos::PipelineExecutor::StepResult
 
-				debugCtrl.querySelector<HTMLButtonElement>('button.step')!.onclick = function () {
+				debugCtrl.querySelector<HTMLButtonElement>('button.step')!.onclick = async function () {
 					stdioEl.value = '';
 					errorEl.value = '';
 					try {
-						const last = session.step();
+						const last = await session.step();
 						if (last == FINISHED) {
 							finish();
 						}
@@ -668,7 +727,7 @@ const vis = {
 				<li><a href="/learn-gpgpu/docs">docs/</a></li>
 			</ul>
 		</nav>
-		<div id="talvos">
+		<div id="talvos" class:list={vis.init == 'v1' ? ['vis-wip'] : []}>
 			<div>
 				<main>
 					<textarea
@@ -724,6 +783,15 @@ const vis = {
 			</div>
 
 			<div id="controls">
+				<select id="vis">
+					<option value="v0" selected={vis.init == 'v0' ? '' : undefined}
+						>v0: control blocks; executor state colors</option
+					>
+					<option value="v1" selected={vis.init == 'v1' ? '' : undefined}
+						>v1 (wip): control "scrubber"; result diamonds</option
+					>
+				</select>
+
 				<button class="validate exec">validate</button>
 				<button class="run exec">run</button>
 				<button class="debug exec">debug</button>
@@ -750,87 +818,94 @@ const vis = {
 				 it'd be nice to write some code for turning `102043253.21231222ms` into a human time
 			-->
 			<output class="timing" style="display: block;"></output>
+			<output class="error" style="display: block; background-color: #fcebeb;"></output>
 
-			<svg xmlns="http://www.w3.org/2000/svg" data-cores={vis.cores.length} data-lanes={vis.cores[0].lanes.count}>
-				<style>
-					g.core :hover,
-					g.core :focus {
-						filter: drop-shadow(0 0 3px rgb(0 0 0 / 0.4));
-					}
+			<shadow-root class:list={['vis', 'v0', ...(vis.init == 'v0' ? [] : ['hidden'])]}>
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					class="vis0"
+					data-cores={vis.cores.length}
+					data-lanes={vis.cores[0].lanes.count}
+				>
+					<style>
+						g.core :hover,
+						g.core :focus {
+							filter: drop-shadow(0 0 3px rgb(0 0 0 / 0.4));
+						}
 
-					g.core .ctrl {
-						fill: chocolate;
-					}
+						g.core .ctrl {
+							fill: chocolate;
+						}
 
-					.lane.selected,
-					.ctrl:has(~ .lane.selected):not(:has(~ .lane:not(.selected))) {
-						filter: url(#inset-shadow);
-					}
+						.lane.selected,
+						.ctrl:has(~ .lane.selected):not(:has(~ .lane:not(.selected))) {
+							filter: url(#inset-shadow);
+						}
 
-					.ctrl:has(~ .lane[data-state='not-launched']):not(:has(~ .lane[data-state='not-launched'])) {
-						filter: opacity(60%);
-					}
+						.ctrl:has(~ .lane[data-state='not-launched']):not(:has(~ .lane[data-state='not-launched'])) {
+							filter: opacity(60%);
+						}
 
-					/* .disabled {
+						/* .disabled {
 						filter: opacity(60%);
 					} */
 
-					/*
+						/*
 						TODO these colors are from NVIDIA nsight; but they're also bad?
 
 						cf. "CUDA Debugger Warp Info View" from https://developer.nvidia.com/nsight-visual-studio-edition
 						(https://d29g4g2dyqv443.cloudfront.net/sites/default/files/akamai/tools/nsvse/nsvse2020_1/NsVSE_Dbg_WarpInfo_Vw.png)
 					*/
-					/* TODO: wait, what's `not-launched` vs `inactive`? */
-					.lane[data-state='active'] {
-						fill: forestgreen;
-					}
-					.lane[data-state='inactive'] {
-						fill: grey;
-					}
+						/* TODO: wait, what's `not-launched` vs `inactive`? */
+						.lane[data-state='active'] {
+							fill: forestgreen;
+						}
+						.lane[data-state='inactive'] {
+							fill: grey;
+						}
 
-					.lane[data-state='at-barrier'] {
-						fill: lightseagreen;
-					}
-					.lane[data-state='at-breakpoint'] {
-						fill: red;
-					}
-					.lane[data-state='at-assert'] {
-						fill: orange;
-					}
-					.lane[data-state='at-exception'] {
-						fill: darkred;
-					}
-					.lane[data-state='not-launched'] {
-						fill: darkgray;
-					}
-					.lane[data-state='exited'] {
-						fill: lightgray;
-					}
+						.lane[data-state='at-barrier'] {
+							fill: lightseagreen;
+						}
+						.lane[data-state='at-breakpoint'] {
+							fill: red;
+						}
+						.lane[data-state='at-assert'] {
+							fill: orange;
+						}
+						.lane[data-state='at-exception'] {
+							fill: darkred;
+						}
+						.lane[data-state='not-launched'] {
+							fill: darkgray;
+						}
+						.lane[data-state='exited'] {
+							fill: lightgray;
+						}
 
-					/* svg text {
+						/* svg text {
 						visibility: hidden;
 					}
 					svg:hover text {
 						visibility: visible;
 					} */
 
-					/*
+						/*
 						NB: doesn't work for two reasons: css-for-svg doesn't support the `content` property or the `::before` pseudo-element
 
 						cf. https://svgwg.org/svg2-draft/styling.html#RequiredProperties
 						and https://svgwg.org/svg2-draft/styling.html#RequiredCSSFeatures
 					*/
-					/* tspan.physical::before {
+						/* tspan.physical::before {
 						content: 'hello';
 					} */
 
-					/* lol there's also CSS-only way to do the hover text, if we don't mind the nth-child(n) -> --var:n mapping thing above */
-					/* we'd have to break out using `foreignObject`, though */
-				</style>
+						/* lol there's also CSS-only way to do the hover text, if we don't mind the nth-child(n) -> --var:n mapping thing above */
+						/* we'd have to break out using `foreignObject`, though */
+					</style>
 
-				<!-- <script></script> -->
-				<!-- <defs>
+					<!-- <script></script> -->
+					<!-- <defs>
 					<pattern id="tenthGrid" width="10" height="10" patternUnits="userSpaceOnUse">
 						<path d="M 10 0 L 0 0 0 10" fill="none" stroke="silver" stroke-width="0.5"></path>
 					</pattern>
@@ -841,105 +916,627 @@ const vis = {
 				</defs>
 				<rect width="100%" height="100%" fill="url(#grid)"></rect> -->
 
-				<defs>
-					<filter id="inset-shadow">
-						<!-- lol hates it -->
-						<!-- <link
+					<defs>
+						<filter id="inset-shadow">
+							<!-- lol hates it -->
+							<!-- <link
 							href="https://css-tricks.com/adding-shadows-to-svg-icons-with-css-and-svg-filters/#aa-using-svg-filters"
 							rel="help"
 						/> -->
-						<!-- Shadow offset -->
-						<feOffset dx="0" dy="0"></feOffset>
+							<!-- Shadow offset -->
+							<feOffset dx="0" dy="0"></feOffset>
 
-						<!-- Shadow blur -->
-						<feGaussianBlur stdDeviation="6" result="offset-blur"></feGaussianBlur>
+							<!-- Shadow blur -->
+							<feGaussianBlur stdDeviation="6" result="offset-blur"></feGaussianBlur>
 
-						<!-- Invert drop shadow to make an inset shadow -->
-						<feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"></feComposite>
+							<!-- Invert drop shadow to make an inset shadow -->
+							<feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"></feComposite>
 
-						<!-- Cut color inside shadow -->
-						<feFlood flood-color="black" flood-opacity=".95" result="color"></feFlood>
-						<feComposite operator="in" in="color" in2="inverse" result="shadow"></feComposite>
+							<!-- Cut color inside shadow -->
+							<feFlood flood-color="black" flood-opacity=".95" result="color"></feFlood>
+							<feComposite operator="in" in="color" in2="inverse" result="shadow"></feComposite>
 
-						<!-- Placing shadow over element -->
-						<feComposite operator="over" in="shadow" in2="SourceGraphic"></feComposite>
-					</filter>
-				</defs>
+							<!-- Placing shadow over element -->
+							<feComposite operator="over" in="shadow" in2="SourceGraphic"></feComposite>
+						</filter>
+					</defs>
 
-				${
-					vis.cores.map((core, i) => (
-						<g class="core" transform={`translate(0, ${vis.lanes.height * i + vis.lanes.padding.y * i})`}>
-							<rect class="ctrl" x={vis.lanes.width / 4} width={vis.lanes.width * 1.5} height={vis.lanes.height} />
-							{Array.from({ length: core.lanes.count }).map((_, j) => (
-								<rect
-									x={(j + 2) * (vis.lanes.width + vis.lanes.padding.x)}
-									width={vis.lanes.width}
-									height={vis.lanes.height}
-									data-phy-coords={`{ ${i}, ${j} }`}
-									class="lane"
-									data-state="inactive"
-								/>
-							))}
+					${
+						vis.cores.map((core, i) => (
+							<g class="core" transform={`translate(0, ${vis.lanes.height * i + vis.lanes.padding.y * i})`}>
+								<rect class="ctrl" x={vis.lanes.width / 4} width={vis.lanes.width * 1.5} height={vis.lanes.height} />
+								{Array.from({ length: core.lanes.count }).map((_, j) => (
+									<rect
+										x={(j + 2) * (vis.lanes.width + vis.lanes.padding.x)}
+										width={vis.lanes.width}
+										height={vis.lanes.height}
+										data-phy-coords={`{ ${i}, ${j} }`}
+										class="lane"
+										data-state="inactive"
+									/>
+								))}
+							</g>
+						))
+					}
+
+					<!-- could put this above, if we knew how tall an em was (or translated negatively?) -->
+					<text y={vis.cores.length * (vis.lanes.height + vis.lanes.padding.y) + vis.lanes.padding.y}>
+						<tspan x="0" dy="1em">physical {`{core, SIMT lane}`}:</tspan>
+						<tspan class="physical">N/A</tspan>
+						<tspan x="0" dy="1.2em">logical {`{workgroup, invocation}`}:</tspan>
+						<tspan class="logical">N/A</tspan>
+					</text>
+				</svg>
+			</shadow-root>
+
+			<shadow-root class:list={['vis', 'v1', ...(vis.init == 'v1' ? [] : ['hidden'])]}>
+				<!-- TODO:
+					a. "step 1/2" button (half a "cycle", to show frame #2?)
+					b. some kind of "windowing" around the program, so we don't just try to generate an infinitely large thing?
+					c. a11y: https://www.sitepoint.com/tips-accessible-svg/ & https://www.sarasoueidan.com/blog/structuring-grouping-referencing-in-svg/
+				-->
+
+				<style is:inline>
+					svg {
+						border: 2px solid #00f;
+					}
+				</style>
+				<!-- see also: https://css-tricks.com/scale-svg/ -->
+				<!-- frame #1 -->
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px">
+					<style>
+						.result {
+							fill-opacity: 0;
+							stroke: black;
+							stroke-width: 1px;
+
+							transform-box: fill-box;
+							transform-origin: center;
+							transform: rotate(45deg);
+						}
+
+						rect {
+							fill-opacity: 0;
+							stroke: black;
+						}
+
+						rect.result:not(.issued) {
+							stroke: none;
+							fill: none;
+							/* stroke-dasharray: 1px 8px; */
+						}
+
+						rect.result.issued:not(.retired) {
+							stroke-dasharray: 2px;
+						}
+					</style>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px">
+						<style>
+							rect.yummy {
+								stroke: none;
+								fill: chocolate;
+								fill-opacity: 100%;
+							}
+
+							.vertical.centerline {
+								stroke: none;
+							}
+						</style>
+						<defs>
+							<symbol id="handle" width="30" height="30" viewBox="0 0 25 30" preserveAspectRatio="none">
+								<polygon points="5 0,25 0,25 20,15 30,5 20"></polygon>
+							</symbol>
+
+							<!-- <symbol id="result" width="80" height="80">
+					<polygon points="0 40,40 80,80 40,40 0" style=" fill: blue; stroke:black;"></polygon>
+				</symbol> -->
+						</defs>
+
+						<g class="core">
+							<!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> -->
+							<rect x="0" y="30" height="200" width="60"></rect>
+
+							<!-- 40x30 at (10 40); centerline: 30 -->
+							<rect x="10" y="40" height="30" width="40" class="yummy"></rect>
 						</g>
-					))
-				}
 
-				<!-- could put this above, if we knew how tall an em was (or translated negatively?) -->
-				<text y={vis.cores.length * (vis.lanes.height + vis.lanes.padding.y) + vis.lanes.padding.y}>
-					<tspan x="0" dy="1em">physical {`{core, SIMT lane}`}:</tspan>
-					<tspan class="physical">N/A</tspan>
-					<tspan x="0" dy="1.2em">logical {`{workgroup, invocation}`}:</tspan>
-					<tspan class="logical">N/A</tspan>
-				</text>
-			</svg>
+						<line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line>
+					</svg>
 
-			<output class="error" style="display: block; background-color: #fcebeb;"></output>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
+
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result issued"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result issued"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result issued"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text>
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text
+							></g
+						>
+						<g>
+							<rect width="20" height="20" x="20" y="80" class="result"></rect>
+							<rect width="20" height="20" x="20" y="110" class="result"></rect>
+							<rect width="20" height="20" x="20" y="140" class="result"></rect>
+							<rect width="20" height="20" x="20" y="170" class="result"></rect>
+						</g>
+					</svg>
+				</svg>
+
+				<!-- frame #2 -->
+				<!-- (frame #1 + 30px for "slider" position; marked all %3 results [ops?] as "retired") -->
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px">
+					<style>
+						.result {
+							fill-opacity: 0;
+							stroke: black;
+							stroke-width: 1px;
+
+							transform-box: fill-box;
+							transform-origin: center;
+							transform: rotate(45deg);
+						}
+
+						rect {
+							fill-opacity: 0;
+							stroke: black;
+						}
+
+						rect.result:not(.issued) {
+							stroke: none;
+							fill: none;
+							/* stroke-dasharray: 1px 8px; */
+						}
+
+						rect.result.issued:not(.retired) {
+							stroke-dasharray: 2px;
+						}
+					</style>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="90" width="60px" height="240px">
+						<style>
+							rect.yummy {
+								stroke: none;
+								fill: chocolate;
+								fill-opacity: 100%;
+							}
+
+							.vertical.centerline {
+								stroke: none;
+							}
+						</style>
+						<defs>
+							<symbol id="handle" width="30" height="30" viewBox="0 0 25 30" preserveAspectRatio="none">
+								<polygon points="5 0,25 0,25 20,15 30,5 20"></polygon>
+							</symbol>
+
+							<!-- <symbol id="result" width="80" height="80">
+					<polygon points="0 40,40 80,80 40,40 0" style=" fill: blue; stroke:black;"></polygon>
+				</symbol> -->
+						</defs>
+
+						<!-- <g class="core_newclass"> -->
+						<!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> -->
+						<rect x="0" y="30" height="200" width="60"></rect>
+
+						<!-- 40x30 at (10 40); centerline: 30 -->
+						<rect x="10" y="40" height="30" width="40" class="yummy"></rect>
+						<!-- </g> -->
+
+						<line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
+
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text>
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text
+							></g
+						>
+						<g>
+							<rect width="20" height="20" x="20" y="80" class="result"></rect>
+							<rect width="20" height="20" x="20" y="110" class="result"></rect>
+							<rect width="20" height="20" x="20" y="140" class="result"></rect>
+							<rect width="20" height="20" x="20" y="170" class="result"></rect>
+						</g>
+					</svg>
+				</svg>
+
+				<!-- frame #3 -->
+				<!-- (frame #2 + 30px for "slider" position; marked all %4 results [ops?] as "issued") -->
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px">
+					<style>
+						.result {
+							fill-opacity: 0;
+							stroke: black;
+							stroke-width: 1px;
+
+							transform-box: fill-box;
+							transform-origin: center;
+							transform: rotate(45deg);
+						}
+
+						rect {
+							fill-opacity: 0;
+							stroke: black;
+						}
+
+						rect.result:not(.issued) {
+							stroke: none;
+							fill: none;
+							/* stroke-dasharray: 1px 8px; */
+						}
+
+						rect.result.issued:not(.retired) {
+							stroke-dasharray: 2px;
+						}
+					</style>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px">
+						<style>
+							rect.yummy {
+								stroke: none;
+								fill: chocolate;
+								fill-opacity: 100%;
+							}
+
+							.vertical.centerline {
+								stroke: none;
+							}
+						</style>
+						<defs>
+							<symbol id="handle" width="30" height="30" viewBox="0 0 25 30" preserveAspectRatio="none">
+								<polygon points="5 0,25 0,25 20,15 30,5 20"></polygon>
+							</symbol>
+
+							<!-- <symbol id="result" width="80" height="80">
+					<polygon points="0 40,40 80,80 40,40 0" style=" fill: blue; stroke:black;"></polygon>
+				</symbol> -->
+						</defs>
+
+						<!-- <g class="core_newclass"> -->
+						<!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> -->
+						<rect x="0" y="30" height="200" width="60"></rect>
+
+						<!-- 40x30 at (10 40); centerline: 30 -->
+						<rect x="10" y="40" height="30" width="40" class="yummy"></rect>
+						<!-- </g> -->
+
+						<line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
+
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text>
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result issued"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result issued"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result issued"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result issued"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text
+							></g
+						>
+						<g>
+							<rect width="20" height="20" x="20" y="80" class="result"></rect>
+							<rect width="20" height="20" x="20" y="110" class="result"></rect>
+							<rect width="20" height="20" x="20" y="140" class="result"></rect>
+							<rect width="20" height="20" x="20" y="170" class="result"></rect>
+						</g>
+					</svg>
+				</svg>
+			</shadow-root>
+
+			<shadow-root class:list={['vis', 'v1', ...(vis.init == 'v1' ? [] : ['hidden'])]}>
+				<script>
+					interface ShadowRootElement extends Element {
+						connected: Promise<void>;
+					}
+
+					const svgEl = await new Promise<SVGElement>(async (resolve, reject) => {
+						// TODO we can do better, but...
+						const roots = document.querySelectorAll<ShadowRootElement>('#talvos shadow-root');
+						await Promise.all([...roots].map((el) => el.connected));
+						await new Promise((resolve) => setTimeout(resolve, 100));
+						console.log([...roots]);
+						console.log([...roots].map((el) => el.shadowRoot));
+						for (const el of roots) {
+							// TODO[next]: why the heck is el.shadowRoot null here?
+							const tgt = el.shadowRoot!.querySelector<SVGElement>('svg.vis1');
+							if (tgt) {
+								resolve(tgt);
+								return;
+							}
+						}
+						reject('el not found');
+					});
+
+					console.log(svgEl);
+
+					function drawModule() {
+						const ops = ['%2', '%3', '%4', 'st'];
+
+						// ops.map()
+					}
+					drawModule();
+				</script>
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 240 240"
+					height="240px"
+					class="vis1"
+					data-cores="TODO"
+					data-lanes="4"
+				>
+					<style>
+						.result {
+							fill-opacity: 0;
+							stroke: black;
+							stroke-width: 1px;
+
+							transform-box: fill-box;
+							transform-origin: center;
+							transform: rotate(45deg);
+						}
+
+						rect {
+							fill-opacity: 0;
+							stroke: black;
+						}
+
+						rect.result:not(.issued) {
+							stroke: none;
+							fill: none;
+							/* stroke-dasharray: 1px 8px; */
+						}
+
+						rect.result.issued:not(.retired) {
+							stroke-dasharray: 2px;
+						}
+					</style>
+
+					<defs>
+						<svg id="step" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240">
+							<style>
+								rect.core {
+									stroke: none;
+									fill: chocolate;
+									fill-opacity: 100%;
+								}
+
+								.vertical.centerline {
+									stroke: none;
+								}
+							</style>
+							<defs>
+								<symbol id="handle" width="30" height="30" viewBox="0 0 25 30" preserveAspectRatio="none">
+									<polygon points="5 0,25 0,25 20,15 30,5 20"></polygon>
+								</symbol>
+							</defs>
+
+							<!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> -->
+							<rect x="0" y="30" height="200" width="60"></rect>
+
+							<!-- 40x30 at (10 40); centerline: 30 -->
+							<rect x="10" y="40" height="30" width="40" class="core"></rect>
+						</svg>
+
+						<line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line>
+					</defs>
+
+					<use href="#step" x="60" width="60px" height="240px"></use>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
+
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result issued"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result issued"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result issued"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text>
+							<g>
+								<rect width="20" height="20" x="20" y="80" class="result"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result"></rect>
+							</g>
+						</g>
+					</svg>
+
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px">
+						<g class="op">
+							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
+							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text
+							></g
+						>
+						<g>
+							<rect width="20" height="20" x="20" y="80" class="result"></rect>
+							<rect width="20" height="20" x="20" y="110" class="result"></rect>
+							<rect width="20" height="20" x="20" y="140" class="result"></rect>
+							<rect width="20" height="20" x="20" y="170" class="result"></rect>
+						</g>
+					</svg>
+				</svg>
+			</shadow-root>
 		</div>
 	</body>
-	<script>
-		const svgEl = document.querySelector<SVGElement>('#talvos svg')!;
-
-		const phyEl = svgEl.querySelector<SVGTSpanElement>('tspan.physical')!;
-		const logEl = svgEl.querySelector<SVGTSpanElement>('tspan.logical')!;
-
-		const laneEls = svgEl.querySelectorAll<SVGElement>('.lane');
-		for (const el of laneEls) {
-			el.addEventListener('mouseenter', function () {
-				phyEl.textContent = this.dataset.phyCoords!;
-				logEl.textContent = this.dataset.logCoords ?? 'N/A';
-			});
-			el.addEventListener('mouseleave', function () {
-				phyEl.textContent = 'N/A';
-				logEl.textContent = 'N/A';
-			});
-
-			el.addEventListener('click', function () {
-				if (this.classList.contains('.disabled')) return;
-
-				this.classList.toggle('selected');
-			});
-		}
-
-		const ctrlEls = svgEl.querySelectorAll<SVGElement>('.ctrl');
-		for (const [i, el] of ctrlEls.entries()) {
-			el.addEventListener('mouseenter', function () {
-				// TODO don't assume lane width
-				phyEl.textContent = `{ ${i}, [${i * 8}-${i * 8 + 7}] }`;
-			});
-			el.addEventListener('mouseleave', function () {
-				phyEl.textContent = 'N/A';
-			});
-
-			el.addEventListener('click', function () {
-				// TODO tease apart "the scheduler decided" vs "the human decided"
-				const selectable = !!this.parentNode!.querySelector('.lane[data-state="active"], .lane[data-state="inactive"]');
-				if (!selectable) return;
-
-				const hasNoneSelected = !this.parentNode!.querySelector('.lane.selected');
-				this.parentNode!.querySelectorAll<SVGElement>('.lane').forEach((laneEl) => {
-					laneEl.classList.toggle('selected', hasNoneSelected);
-				});
-			});
-		}
-	</script>
 </html>
+
+<script>
+	const svgEl = document.querySelector<SVGElement>('#talvos svg.vis0')!;
+
+	const phyEl = svgEl.querySelector<SVGTSpanElement>('tspan.physical')!;
+	const logEl = svgEl.querySelector<SVGTSpanElement>('tspan.logical')!;
+
+	const laneEls = svgEl.querySelectorAll<SVGElement>('.lane');
+	for (const el of laneEls) {
+		el.addEventListener('mouseenter', function () {
+			phyEl.textContent = this.dataset.phyCoords!;
+			logEl.textContent = this.dataset.logCoords ?? 'N/A';
+		});
+		el.addEventListener('mouseleave', function () {
+			phyEl.textContent = 'N/A';
+			logEl.textContent = 'N/A';
+		});
+
+		el.addEventListener('click', function () {
+			if (this.classList.contains('.disabled')) return;
+
+			this.classList.toggle('selected');
+		});
+	}
+
+	const ctrlEls = svgEl.querySelectorAll<SVGElement>('.ctrl');
+	for (const [i, el] of ctrlEls.entries()) {
+		el.addEventListener('mouseenter', function () {
+			// TODO don't assume lane width
+			phyEl.textContent = `{ ${i}, [${i * 8}-${i * 8 + 7}] }`;
+		});
+		el.addEventListener('mouseleave', function () {
+			phyEl.textContent = 'N/A';
+		});
+
+		el.addEventListener('click', function () {
+			// TODO tease apart "the scheduler decided" vs "the human decided"
+			const selectable = !!this.parentNode!.querySelector('.lane[data-state="active"], .lane[data-state="inactive"]');
+			if (!selectable) return;
+
+			const hasNoneSelected = !this.parentNode!.querySelector('.lane.selected');
+			this.parentNode!.querySelectorAll<SVGElement>('.lane').forEach((laneEl) => {
+				laneEl.classList.toggle('selected', hasNoneSelected);
+			});
+		});
+	}
+</script>

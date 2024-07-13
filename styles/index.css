@@ -21,10 +21,18 @@ textarea {
 	width : 860px;
 	height : 500px;
 }
+.vis-wip textarea {
+	height: 220px;
+	width : 110px;
+}
 #controls {
   text-align : center;
   background : #ccc;
   padding : .5em 0;
+}
+#controls select {
+	float: inline-start;
+  margin : 0 1em;
 }
 #controls button {
   margin : 0 1em;
@@ -87,4 +95,7 @@ nav li:not(:last-child) a::after  {
 .buffers li[data-prev]::after {
 	content: " (was: " attr(data-prev) ")";
 	color: lightslategrey;
+}
+.hidden {
+	display: none;
 }
