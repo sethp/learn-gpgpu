@@ -25,19 +25,20 @@ textarea {
 	height: 220px;
 	width : 110px;
 }
-#controls {
+.controls {
   text-align : center;
   background : #ccc;
   padding : .5em 0;
 }
-#controls select {
-	float: inline-start;
+.controls select {
+	position: absolute;
+	margin : 0 1em;
+	left: 0;
+}
+.controls button {
   margin : 0 1em;
 }
-#controls button {
-  margin : 0 1em;
-}
-#controls div {
+.controls div {
 	padding-top: 0.5em;
 }
 output.stdio {
@@ -97,5 +98,8 @@ nav li:not(:last-child) a::after  {
 	color: lightslategrey;
 }
 .hidden {
+	display: none;
+}
+shadow-root:not(:defined) {
 	display: none;
 }

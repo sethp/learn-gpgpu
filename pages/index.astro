@@ -276,15 +276,15 @@ const vis = {
 				// }
 			}
 
-			const selectEl = document.querySelector<HTMLSelectElement>('#talvos #controls select')!;
+			const selectEl = document.querySelector<HTMLSelectElement>('#talvos .controls select')!;
 			selectEl.addEventListener('input', () => {
 				switch (selectEl.value) {
 					case 'v0':
 					case 'v1':
-						document.querySelectorAll(`#talvos .vis.${selectEl.value}`).forEach((el) => {
+						document.querySelectorAll(`#talvos > .vis.${selectEl.value}`).forEach((el) => {
 							el.classList.remove('hidden');
 						});
-						document.querySelectorAll(`#talvos .vis:not(.${selectEl.value})`).forEach((el) => {
+						document.querySelectorAll(`#talvos > .vis:not(.${selectEl.value})`).forEach((el) => {
 							el.classList.add('hidden');
 						});
 						const wip = selectEl.value == 'v1';
@@ -782,13 +782,13 @@ const vis = {
 				</aside>
 			</div>
 
-			<div id="controls">
+			<div class="controls">
 				<select id="vis">
 					<option value="v0" selected={vis.init == 'v0' ? '' : undefined}
 						>v0: control blocks; executor state colors</option
 					>
 					<option value="v1" selected={vis.init == 'v1' ? '' : undefined}
-						>v1 (wip): control "scrubber"; result diamonds</option
+						>v1 (wip): control "scrubber"; SSA results</option
 					>
 				</select>
 
@@ -1336,21 +1336,42 @@ const vis = {
 				</svg>
 			</shadow-root>
 
+			<div class="controls vis v1">
+				<button class="reset exec">reset</button>
+				<button class="vis step0 exec">step (vis)</button>
+				<button class="vis step1 exec">step (line)</button>
+			</div>
 			<shadow-root class:list={['vis', 'v1', ...(vis.init == 'v1' ? [] : ['hidden'])]}>
 				<script>
 					interface ShadowRootElement extends Element {
-						connected: Promise<void>;
+						get connected(): Promise<void>;
 					}
+
+					const ops = ['%2', '%3', '%4', 'st'];
+					var state: { cur: number; last: 'issued' | 'retired' | 'none' } = {
+						cur: 1,
+						last: 'issued',
+					};
+
+					const resetEl = document.querySelector('#talvos .controls button.reset')!;
+					resetEl.addEventListener('click', function () {
+						state = { cur: 1, last: 'issued' };
+						drawModule();
+					});
+					const stepEl = document.querySelector('#talvos .controls button.vis.step0')!;
+					stepEl.addEventListener('click', function () {
+						state = {
+							cur: state.cur + 1,
+							last: 'issued',
+						};
+						drawModule();
+					});
 
 					const svgEl = await new Promise<SVGElement>(async (resolve, reject) => {
 						// TODO we can do better, but...
+						await customElements.whenDefined('shadow-root');
 						const roots = document.querySelectorAll<ShadowRootElement>('#talvos shadow-root');
-						await Promise.all([...roots].map((el) => el.connected));
-						await new Promise((resolve) => setTimeout(resolve, 100));
-						console.log([...roots]);
-						console.log([...roots].map((el) => el.shadowRoot));
 						for (const el of roots) {
-							// TODO[next]: why the heck is el.shadowRoot null here?
 							const tgt = el.shadowRoot!.querySelector<SVGElement>('svg.vis1');
 							if (tgt) {
 								resolve(tgt);
@@ -1360,12 +1381,61 @@ const vis = {
 						reject('el not found');
 					});
 
-					console.log(svgEl);
-
+					// TODO[seth]: we shouldn't replace on every transition, just once at the beginning
 					function drawModule() {
-						const ops = ['%2', '%3', '%4', 'st'];
+						svgEl.replaceChildren(
+							...svgEl.querySelectorAll('style,defs'),
+							((el: Node & SVGElement) => {
+								el.setAttribute('href', '#step');
+								el.setAttribute('width', '60px');
+								el.setAttribute('height', '240px');
+								el.setAttribute('x', `${(state.cur || 1) * 60}`); // TODO this works b/c clipping
+								return el;
+							})(document.createElementNS('http://www.w3.org/2000/svg', 'use')),
 
-						// ops.map()
+							...ops.map((op, idx) => {
+								// <svg xmlns="http://www.w3.org/2000/svg" ... />
+								const opSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+								opSvg.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns', 'http://www.w3.org/2000/svg');
+
+								opSvg.setAttribute('viewBox', '0 0 60 240');
+								opSvg.setAttribute('width', '60px');
+								opSvg.setAttribute('height', '240px');
+								opSvg.setAttribute('x', `${idx * 60}`);
+
+								const opEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'circle'));
+
+								opEl.setAttribute('cx', '30');
+
+								opEl.setAttribute('cy', '55');
+								opEl.setAttribute('r', '12');
+
+								const opLabelEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'text'));
+
+								// x="30" y="55" dominant-baseline="middle" text-anchor="middle"
+								opLabelEl.setAttribute('x', '30');
+								opLabelEl.setAttribute('y', '55');
+								opLabelEl.setAttribute('dominant-baseline', 'middle');
+								opLabelEl.setAttribute('text-anchor', 'middle');
+								opLabelEl.append(op);
+
+								const gEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'g'));
+
+								// <rect width="20" height="20" x="20" y="80 + ..." class="result issued retired"></rect>
+								for (var i = 0; i < parseInt(svgEl.dataset.lanes || ''); i++) {
+									const resEl = gEl.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
+									resEl.setAttribute('x', '20');
+									resEl.setAttribute('y', `${80 + 30 * i}`);
+									resEl.setAttribute('width', '20');
+									resEl.setAttribute('height', '20');
+									resEl.classList.add('result');
+									if (idx < state.cur || (idx == state.cur && state.last == 'retired')) resEl.classList.add('retired');
+									if (idx < state.cur || (idx == state.cur && state.last != 'none')) resEl.classList.add('issued');
+								}
+
+								return opSvg;
+							})
+						);
 					}
 					drawModule();
 				</script>
@@ -1388,6 +1458,11 @@ const vis = {
 							transform: rotate(45deg);
 						}
 
+						circle {
+							fill: white;
+							stroke: black;
+						}
+
 						rect {
 							fill-opacity: 0;
 							stroke: black;
@@ -1401,6 +1476,10 @@ const vis = {
 
 						rect.result.issued:not(.retired) {
 							stroke-dasharray: 2px;
+						}
+
+						text {
+							font-size: smaller;
 						}
 					</style>
 
@@ -1432,62 +1511,6 @@ const vis = {
 
 						<line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line>
 					</defs>
-
-					<use href="#step" x="60" width="60px" height="240px"></use>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
-
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result issued"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result issued"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result issued"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text>
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text
-							></g
-						>
-						<g>
-							<rect width="20" height="20" x="20" y="80" class="result"></rect>
-							<rect width="20" height="20" x="20" y="110" class="result"></rect>
-							<rect width="20" height="20" x="20" y="140" class="result"></rect>
-							<rect width="20" height="20" x="20" y="170" class="result"></rect>
-						</g>
-					</svg>
 				</svg>
 			</shadow-root>
 		</div>
