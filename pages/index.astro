@@ -1336,108 +1336,120 @@ const vis = {
 				</svg>
 			</shadow-root>
 
-			<div class="controls vis v1">
+			<div class="controls vis v1" class:list={[...(vis.init == 'v1' ? [] : ['hidden'])]}>
 				<button class="reset exec">reset</button>
 				<button class="vis step0 exec">step (vis)</button>
 				<button class="vis step1 exec">step (line)</button>
 			</div>
 			<shadow-root class:list={['vis', 'v1', ...(vis.init == 'v1' ? [] : ['hidden'])]}>
+				{
+					// TODO: this gets hoisted up "above" the earlier scripts when built for `dist`
+					//
+					// this leads to a deadlock between the top-level await (on `customElements.whenDefined`),
+					// and the `customElements.define` call, so instead we wrap the whole thing in its own little
+					// immediately-invoked async context.
+					//
+					// see also: https://discord.com/channels/830184174198718474/1263201016212361329/1263201016212361329
+				}
 				<script>
 					interface ShadowRootElement extends Element {
 						get connected(): Promise<void>;
 					}
 
-					const ops = ['%2', '%3', '%4', 'st'];
-					var state: { cur: number; last: 'issued' | 'retired' | 'none' } = {
-						cur: 1,
-						last: 'issued',
-					};
-
-					const resetEl = document.querySelector('#talvos .controls button.reset')!;
-					resetEl.addEventListener('click', function () {
-						state = { cur: 1, last: 'issued' };
-						drawModule();
-					});
-					const stepEl = document.querySelector('#talvos .controls button.vis.step0')!;
-					stepEl.addEventListener('click', function () {
-						state = {
-							cur: state.cur + 1,
+					(async () => {
+						const ops = ['%2', '%3', '%4', 'st'];
+						var state: { cur: number; last: 'issued' | 'retired' | 'none' } = {
+							cur: 1,
 							last: 'issued',
 						};
-						drawModule();
-					});
 
-					const svgEl = await new Promise<SVGElement>(async (resolve, reject) => {
-						// TODO we can do better, but...
-						await customElements.whenDefined('shadow-root');
-						const roots = document.querySelectorAll<ShadowRootElement>('#talvos shadow-root');
-						for (const el of roots) {
-							const tgt = el.shadowRoot!.querySelector<SVGElement>('svg.vis1');
-							if (tgt) {
-								resolve(tgt);
-								return;
-							}
-						}
-						reject('el not found');
-					});
+						const resetEl = document.querySelector('#talvos .controls button.reset')!;
+						resetEl.addEventListener('click', function () {
+							state = { cur: 1, last: 'issued' };
+							drawModule();
+						});
+						const stepEl = document.querySelector('#talvos .controls button.vis.step0')!;
+						stepEl.addEventListener('click', function () {
+							state = {
+								cur: state.cur + 1,
+								last: 'issued',
+							};
+							drawModule();
+						});
 
-					// TODO[seth]: we shouldn't replace on every transition, just once at the beginning
-					function drawModule() {
-						svgEl.replaceChildren(
-							...svgEl.querySelectorAll('style,defs'),
-							((el: Node & SVGElement) => {
-								el.setAttribute('href', '#step');
-								el.setAttribute('width', '60px');
-								el.setAttribute('height', '240px');
-								el.setAttribute('x', `${(state.cur || 1) * 60}`); // TODO this works b/c clipping
-								return el;
-							})(document.createElementNS('http://www.w3.org/2000/svg', 'use')),
-
-							...ops.map((op, idx) => {
-								// <svg xmlns="http://www.w3.org/2000/svg" ... />
-								const opSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-								opSvg.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns', 'http://www.w3.org/2000/svg');
-
-								opSvg.setAttribute('viewBox', '0 0 60 240');
-								opSvg.setAttribute('width', '60px');
-								opSvg.setAttribute('height', '240px');
-								opSvg.setAttribute('x', `${idx * 60}`);
-
-								const opEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'circle'));
-
-								opEl.setAttribute('cx', '30');
-
-								opEl.setAttribute('cy', '55');
-								opEl.setAttribute('r', '12');
-
-								const opLabelEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'text'));
-
-								// x="30" y="55" dominant-baseline="middle" text-anchor="middle"
-								opLabelEl.setAttribute('x', '30');
-								opLabelEl.setAttribute('y', '55');
-								opLabelEl.setAttribute('dominant-baseline', 'middle');
-								opLabelEl.setAttribute('text-anchor', 'middle');
-								opLabelEl.append(op);
-
-								const gEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'g'));
-
-								// <rect width="20" height="20" x="20" y="80 + ..." class="result issued retired"></rect>
-								for (var i = 0; i < parseInt(svgEl.dataset.lanes || ''); i++) {
-									const resEl = gEl.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
-									resEl.setAttribute('x', '20');
-									resEl.setAttribute('y', `${80 + 30 * i}`);
-									resEl.setAttribute('width', '20');
-									resEl.setAttribute('height', '20');
-									resEl.classList.add('result');
-									if (idx < state.cur || (idx == state.cur && state.last == 'retired')) resEl.classList.add('retired');
-									if (idx < state.cur || (idx == state.cur && state.last != 'none')) resEl.classList.add('issued');
+						const svgEl = await new Promise<SVGElement>(async (resolve, reject) => {
+							// TODO we can do better, but...
+							await customElements.whenDefined('shadow-root');
+							const roots = document.querySelectorAll<ShadowRootElement>('#talvos shadow-root');
+							for (const el of roots) {
+								const tgt = el.shadowRoot!.querySelector<SVGElement>('svg.vis1');
+								if (tgt) {
+									resolve(tgt);
+									return;
 								}
+							}
+							reject('el not found');
+						});
 
-								return opSvg;
-							})
-						);
-					}
-					drawModule();
+						// TODO[seth]: we shouldn't replace on every transition, just once at the beginning
+						function drawModule() {
+							svgEl.replaceChildren(
+								...svgEl.querySelectorAll('style,defs'),
+								((el: Node & SVGElement) => {
+									el.setAttribute('href', '#step');
+									el.setAttribute('width', '60px');
+									el.setAttribute('height', '240px');
+									el.setAttribute('x', `${(state.cur || 1) * 60}`); // TODO this works b/c clipping
+									return el;
+								})(document.createElementNS('http://www.w3.org/2000/svg', 'use')),
+
+								...ops.map((op, idx) => {
+									// <svg xmlns="http://www.w3.org/2000/svg" ... />
+									const opSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+									opSvg.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns', 'http://www.w3.org/2000/svg');
+
+									opSvg.setAttribute('viewBox', '0 0 60 240');
+									opSvg.setAttribute('width', '60px');
+									opSvg.setAttribute('height', '240px');
+									opSvg.setAttribute('x', `${idx * 60}`);
+
+									const opEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'circle'));
+
+									opEl.setAttribute('cx', '30');
+
+									opEl.setAttribute('cy', '55');
+									opEl.setAttribute('r', '12');
+
+									const opLabelEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'text'));
+
+									// x="30" y="55" dominant-baseline="middle" text-anchor="middle"
+									opLabelEl.setAttribute('x', '30');
+									opLabelEl.setAttribute('y', '55');
+									opLabelEl.setAttribute('dominant-baseline', 'middle');
+									opLabelEl.setAttribute('text-anchor', 'middle');
+									opLabelEl.append(op);
+
+									const gEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'g'));
+
+									// <rect width="20" height="20" x="20" y="80 + ..." class="result issued retired"></rect>
+									for (var i = 0; i < parseInt(svgEl.dataset.lanes || ''); i++) {
+										const resEl = gEl.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
+										resEl.setAttribute('x', '20');
+										resEl.setAttribute('y', `${80 + 30 * i}`);
+										resEl.setAttribute('width', '20');
+										resEl.setAttribute('height', '20');
+										resEl.classList.add('result');
+										if (idx < state.cur || (idx == state.cur && state.last == 'retired'))
+											resEl.classList.add('retired');
+										if (idx < state.cur || (idx == state.cur && state.last != 'none')) resEl.classList.add('issued');
+									}
+
+									return opSvg;
+								})
+							);
+						}
+						drawModule();
+					})();
 				</script>
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
