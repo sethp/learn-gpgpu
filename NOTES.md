@@ -1199,3 +1199,70 @@ OpUnreachable
 OpWritePackedPrimitiveIndices4x8NV
 ```
 
+## a note on debuggers, breakpoints, and µarch
+
+Where, microarchitecturally, does a breakpoint "occur"? Is it before the operation is issued, or before it is retired?
+
+In the "all instructions are sequential-issued & sequentially-retired" model then it doesn't really matter, because either "before issue" or "before retire" seam is "before the effects are visible" and "after the previous instruction's effects are visible."
+
+But, that requires precise exception handling in the µarch, because even in very simple pipelines there will be many in-flight instructions that have all been issued but have not yet retired when we hit our breakpoint.
+
+In the five-stage RISC (AKA load-store) pipeline model of:
+
+- fetch (IF)
+- decode (ID)
+- execute (EX, ALU)
+- mem (MEM)
+- writeback (WB)
+
+we might say an instruction has been issued as soon as it's fetched, but that's only partially true for instructions following a branch: depending on the implementation (oh no!) an instruction is only guaranteed to be "issued" (i.e. make its effects "known") sometime after the dependent instructions leave the execute stage;  we're somewhat buffered by the load-store nature here because we can't branch on the contents of memory directly, and so we can get away with saying that EX is sufficient the instruction which depends on the memory will stall sometime before it leaves the execute stage.
+
+## towards a new model
+
+Perhaps we're going one level too deep to use the terminology "issued" and "retired," because 1) those are out-of-order execution terms, and 2) it still seems that GPUs conspire to make their pipelined operations still appear in-order depsite any dependencies—except when it comes to (some) exception precision. Ok, an alternative, then, is to create a purely sequential model (nice because it narrows limits the mental scope to a single operation at a time) where every operation is:
+
+- not yet reached (AKA still in the future)
+- not yet "satisfied" (previously, "retired")
+
+So every computation is shuffling between three (exclusive) sets:
+
+- all the not-yet-reached instructions (the ones "ahead" of the current "read head")
+- all the reached-but-not-yet-"satisfied" instructions ("dispatched", previously "issued"?)
+- all the instructions that are fully committed and whose effects are visible
+
+So for the "read head" to reach a particular instruction is identical with "dispatch"ing it, since that's now the object under consideration. It may take some _resource_ (time? slots? bandwidth?) to satisfy the
+
+Are there any standard terms? Seems like a no: https://stackoverflow.com/a/52763093/151464
+
+Dive Into Systems[^dive-into-systems] seems like it avoids naming the set of actively executing instructions, but does use "complete" mostly consistently between its discussion of "single-slot" (i.e. non-pipelined, "clock-driven") execution [^dis-clock-driven] and pipelining[^dis-pipeline].
+
+[^dive-into-systems]: https://diveintosystems.org/
+
+[^dis-clock-driven]: https://diveintosystems.org/book/C5-Arch/instrexec.html#_clock_driven_execution
+
+[^dis-pipeline]: https://diveintosystems.org/book/C5-Arch/pipelining.html
+
+Ok, so prospective model then is:
+
+- as soon as an execution unit ("core") encounters an operation, that operation is "dispatched"
+- once an operation is "completed", its effects are visible and the execution unit atomically dispatches the next instruction
+
+We might need to relax the atomic constraint in the future, but this model answers our current question of "when does the debugger pause"—_on_ the dispatch edge.
+
+We can also say "the operation is dispatched once per lane simultaenously, and completed once per lane independently."
+
+Seems OK: the words are a little long, but they're possibly less confusing than trying to pin down the more wriggly "issue" and "retire".
+
+Some other samples:
+
+- _dispatching_ a memory operation sends out its requests, and the operation can't _complete_ until those requests are satisfied by the memory unit
+- an operation that has a _structural hazard_ will stall at the dispatch stage until the needed resource is available
+- across multiple cores, how many operations have been dispatched?
+
+The atomicity does confuse matters for SIMT-land, just a bit: the happens-before relationship between previous operation last-lane completion and next operation simultaneous dispatch isn't clear unless we invoke something that separates the two.
+
+### spacing out dispatch and completion for learning
+
+So, how do we model a gap there? The most natural place to throttle is at the "memory access" boundary; we might construct a toy GPU that has a tiny memory bandwidth which only allows it to load, say, 4 bytes at a time or so. Or maybe only allows it to "consider" one memory request at a time?
+
+Let's play with that for now. All operations will complete in one "vis step" unless they touch memory, and then they compelete one-at-a-time (in order, to make it easier, though nondeterministically would be better).

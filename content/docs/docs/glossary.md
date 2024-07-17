@@ -55,3 +55,5 @@ Parallel::
 
   Aside: Often problems arise when work that is _not_ concurrent is executed concurrently—that is, as if it were safe to execute in any order or with any degree of overlap. In those situations, so-called "concurrency bugs" arise because the work that was _thought_ to be concurrent turned out not to be correct under some degree of parallelism. For this reason, it's often easy to confuse "concurrent" and "parallel," because even though the misunderstanding was in whether or not the work was concurrent (i.e. was correct under all possible permutations), the mistake was exposed by "rubbing some parallelism on it."
 
+
+<!-- TODO: define "dispatch" vs. "completed" as operation model -->

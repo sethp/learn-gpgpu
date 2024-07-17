@@ -1000,13 +1000,13 @@ const vis = {
 							stroke: black;
 						}
 
-						rect.result:not(.issued) {
+						rect.result:not(.dispatched) {
 							stroke: none;
 							fill: none;
 							/* stroke-dasharray: 1px 8px; */
 						}
 
-						rect.result.issued:not(.retired) {
+						rect.result.dispatched:not(.completed) {
 							stroke-dasharray: 2px;
 						}
 					</style>
@@ -1049,10 +1049,10 @@ const vis = {
 							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
 							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
 							<g>
-								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect>
 							</g>
 						</g>
 					</svg>
@@ -1063,10 +1063,10 @@ const vis = {
 							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
 
 							<g>
-								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result issued"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result issued"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result issued"></rect>
+								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result dispatched"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result dispatched"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result dispatched"></rect>
 							</g>
 						</g>
 					</svg>
@@ -1100,7 +1100,7 @@ const vis = {
 				</svg>
 
 				<!-- frame #2 -->
-				<!-- (frame #1 + 30px for "slider" position; marked all %3 results [ops?] as "retired") -->
+				<!-- (frame #1 + 30px for "slider" position; marked all %3 results [ops?] as "completed") -->
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px">
 					<style>
 						.result {
@@ -1118,13 +1118,13 @@ const vis = {
 							stroke: black;
 						}
 
-						rect.result:not(.issued) {
+						rect.result:not(.dispatched) {
 							stroke: none;
 							fill: none;
 							/* stroke-dasharray: 1px 8px; */
 						}
 
-						rect.result.issued:not(.retired) {
+						rect.result.dispatched:not(.completed) {
 							stroke-dasharray: 2px;
 						}
 					</style>
@@ -1167,10 +1167,10 @@ const vis = {
 							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
 							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
 							<g>
-								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect>
 							</g>
 						</g>
 					</svg>
@@ -1181,10 +1181,10 @@ const vis = {
 							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
 
 							<g>
-								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect>
 							</g>
 						</g>
 					</svg>
@@ -1218,7 +1218,7 @@ const vis = {
 				</svg>
 
 				<!-- frame #3 -->
-				<!-- (frame #2 + 30px for "slider" position; marked all %4 results [ops?] as "issued") -->
+				<!-- (frame #2 + 30px for "slider" position; marked all %4 results [ops?] as "dispatched") -->
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px">
 					<style>
 						.result {
@@ -1236,13 +1236,13 @@ const vis = {
 							stroke: black;
 						}
 
-						rect.result:not(.issued) {
+						rect.result:not(.dispatched) {
 							stroke: none;
 							fill: none;
 							/* stroke-dasharray: 1px 8px; */
 						}
 
-						rect.result.issued:not(.retired) {
+						rect.result.dispatched:not(.completed) {
 							stroke-dasharray: 2px;
 						}
 					</style>
@@ -1285,10 +1285,10 @@ const vis = {
 							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
 							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
 							<g>
-								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect>
 							</g>
 						</g>
 					</svg>
@@ -1299,10 +1299,10 @@ const vis = {
 							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
 
 							<g>
-								<rect width="20" height="20" x="20" y="80" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result issued retired"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result issued retired"></rect>
+								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect>
 							</g>
 						</g>
 					</svg>
@@ -1312,10 +1312,10 @@ const vis = {
 							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
 							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text>
 							<g>
-								<rect width="20" height="20" x="20" y="80" class="result issued"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result issued"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result issued"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result issued"></rect>
+								<rect width="20" height="20" x="20" y="80" class="result dispatched"></rect>
+								<rect width="20" height="20" x="20" y="110" class="result dispatched"></rect>
+								<rect width="20" height="20" x="20" y="140" class="result dispatched"></rect>
+								<rect width="20" height="20" x="20" y="170" class="result dispatched"></rect>
 							</g>
 						</g>
 					</svg>
@@ -1337,9 +1337,9 @@ const vis = {
 			</shadow-root>
 
 			<div class="controls vis v1" class:list={[...(vis.init == 'v1' ? [] : ['hidden'])]}>
-				<button class="reset exec">reset</button>
-				<button class="vis step0 exec">step (vis)</button>
-				<button class="vis step1 exec">step (line)</button>
+				<button class="vis reset">reset</button>
+				<button class="vis step0">step (vis)</button>
+				<button class="vis step1">step (op)</button>
 			</div>
 			<shadow-root class:list={['vis', 'v1', ...(vis.init == 'v1' ? [] : ['hidden'])]}>
 				{
@@ -1357,22 +1357,110 @@ const vis = {
 					}
 
 					(async () => {
-						const ops = ['%2', '%3', '%4', 'st'];
-						var state: { cur: number; last: 'issued' | 'retired' | 'none' } = {
-							cur: 1,
-							last: 'issued',
-						};
+						const ops: { label: string; kind: 'mem' | 'alu'; values: () => Generator<string> }[] = [
+							{
+								// %2 = OpAccessChain %_ptr_Input_uint32_t %gl_GlobalInvocationID %n
+								label: '%2',
+								kind: 'alu',
+								values: function* () {
+									let base = 0x1000000000000;
+									while (true) {
+										const last = base;
+										base += 4;
+										yield `0x${last.toString(16)}`;
+									}
+								},
+							},
+							{
+								// %3 = OpLoad %uint32_t %2 Aligned 4
+								label: '%3',
+								kind: 'mem',
+								values: function* () {
+									let last = 0;
+									while (true) {
+										yield `${last++}`;
+									}
+								},
+							},
+							{
+								// %4 = OpAccessChain %_ptr_PhysicalStorageBuffer_uint32_t %buf0 %3
+								label: '%4',
+								kind: 'alu',
+								values: function* () {
+									let base = 0x2000000000000;
+									while (true) {
+										const last = base;
+										base += 4;
+										yield `0x${last.toString(16)}`;
+									}
+								},
+							},
+							{
+								// OpStore %4 %3 Aligned 4
+								label: 'st',
+								kind: 'mem',
+								values: function* () {
+									while (true) {
+										yield '✔';
+									}
+								},
+							},
+						];
+						var state: { cur: number; last: 'completed'[]; gen?: Generator<string> };
+						function resetState() {
+							state = {
+								cur: 1,
+								last: ['completed'],
+								gen: (() => {
+									const it = ops[1]!.values();
+									it.next();
+									return it;
+								})(),
+							};
+						}
+						resetState();
 
 						const resetEl = document.querySelector('#talvos .controls button.reset')!;
 						resetEl.addEventListener('click', function () {
-							state = { cur: 1, last: 'issued' };
+							resetState();
 							drawModule();
 						});
-						const stepEl = document.querySelector('#talvos .controls button.vis.step0')!;
-						stepEl.addEventListener('click', function () {
+						const stepVisEl = document.querySelector('#talvos .controls button.vis.step0')!;
+						stepVisEl.addEventListener('click', function () {
+							if (state.cur >= ops.length) return;
+							switch (ops[state.cur]?.kind) {
+								case 'alu':
+									// alu ops complete one "vis step" after they're dispatched
+									state.last = [
+										...state.last,
+										...[
+											...svgEl.querySelectorAll(
+												`:nth-child(${state.cur + 1} of :has(g.results)) g.results .dispatched:not(.completed)`
+											),
+										].map((_): 'completed' => 'completed'),
+									];
+									break;
+								case 'mem':
+									// memory operations complete one "vis step" at a time
+									state.last = [...state.last, 'completed'];
+									break;
+								default:
+									throw new Error(`unknown op kind: ${ops[state.cur]?.kind}`);
+							}
+							const n = parseInt(svgEl.dataset.lanes || '');
+							if (state.last.length >= n) {
+								state = {
+									cur: state.cur + 1,
+									last: [],
+								};
+							}
+							drawModule();
+						});
+						const stepLineEl = document.querySelector('#talvos .controls button.vis.step1')!;
+						stepLineEl.addEventListener('click', function () {
 							state = {
 								cur: state.cur + 1,
-								last: 'issued',
+								last: [],
 							};
 							drawModule();
 						});
@@ -1391,7 +1479,26 @@ const vis = {
 							reject('el not found');
 						});
 
-						// TODO[seth]: we shouldn't replace on every transition, just once at the beginning
+						// TODO: we should hoist state into the DOM and update it instead of react-style re-rendering, but...
+						function updateModule() {
+							if (state.cur >= ops.length) return;
+							if (!state.gen) state.gen = ops[state.cur]!.values();
+
+							const needTextEls = svgEl.querySelectorAll(
+								`:nth-child(${state.cur + 1} of :has(g.results)) g.results > .completed:not(:has(title))`
+							);
+							for (const el of needTextEls) {
+								// TODO we really want something like this for a `<text>`, don't we?
+								// or maybe for every result to be its own `g` so we can add a child?
+								// el.insertAdjacentElement()
+
+								// TODO oh of course (?) this blows up with:
+								// Uncaught HierarchyRequestError: Failed to execute 'appendChild' on 'Node': Nodes of type 'title' may not be inserted inside nodes of type 'rect'.
+								const titleEl = el.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'title'));
+								titleEl.textContent = state.gen.next().value || 'uh oh'; // TODO
+							}
+						}
+
 						function drawModule() {
 							svgEl.replaceChildren(
 								...svgEl.querySelectorAll('style,defs'),
@@ -1427,11 +1534,12 @@ const vis = {
 									opLabelEl.setAttribute('y', '55');
 									opLabelEl.setAttribute('dominant-baseline', 'middle');
 									opLabelEl.setAttribute('text-anchor', 'middle');
-									opLabelEl.append(op);
+									opLabelEl.append(op.label);
 
 									const gEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'g'));
+									gEl.classList.add('results');
 
-									// <rect width="20" height="20" x="20" y="80 + ..." class="result issued retired"></rect>
+									// <rect width="20" height="20" x="20" y="80 + ..." class="result dispatched completed"></rect>
 									for (var i = 0; i < parseInt(svgEl.dataset.lanes || ''); i++) {
 										const resEl = gEl.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
 										resEl.setAttribute('x', '20');
@@ -1439,9 +1547,9 @@ const vis = {
 										resEl.setAttribute('width', '20');
 										resEl.setAttribute('height', '20');
 										resEl.classList.add('result');
-										if (idx < state.cur || (idx == state.cur && state.last == 'retired'))
-											resEl.classList.add('retired');
-										if (idx < state.cur || (idx == state.cur && state.last != 'none')) resEl.classList.add('issued');
+										if (idx < state.cur || (idx == state.cur && state.last[i] == 'completed'))
+											resEl.classList.add('completed');
+										if (idx <= state.cur) resEl.classList.add('dispatched');
 									}
 
 									return opSvg;
@@ -1480,13 +1588,13 @@ const vis = {
 							stroke: black;
 						}
 
-						rect.result:not(.issued) {
+						rect.result:not(.dispatched) {
 							stroke: none;
 							fill: none;
 							/* stroke-dasharray: 1px 8px; */
 						}
 
-						rect.result.issued:not(.retired) {
+						rect.result.dispatched:not(.completed) {
 							stroke-dasharray: 2px;
 						}
 
