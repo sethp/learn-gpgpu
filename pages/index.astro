@@ -1363,11 +1363,11 @@ const vis = {
 								label: '%2',
 								kind: 'alu',
 								values: function* () {
-									let base = 0x1000000000000;
+									let addr = 0x1000000000000;
 									while (true) {
-										const last = base;
-										base += 4;
-										yield `0x${last.toString(16)}`;
+										const r = `0x${addr.toString(16)}`;
+										addr += 4;
+										yield r;
 									}
 								},
 							},
@@ -1387,11 +1387,13 @@ const vis = {
 								label: '%4',
 								kind: 'alu',
 								values: function* () {
-									let base = 0x2000000000000;
+									const base = 0x2000000000000;
+									let offset = 0;
 									while (true) {
-										const last = base;
-										base += 4;
-										yield `0x${last.toString(16)}`;
+										const last = offset;
+										offset += 4;
+										// yield `0x${last.toString(16)}`;
+										yield `0x20..${last.toString(16).padStart(2, '0')}`;
 									}
 								},
 							},
@@ -1479,7 +1481,10 @@ const vis = {
 							reject('el not found');
 						});
 
-						// TODO: we should hoist state into the DOM and update it instead of react-style re-rendering, but...
+						// TODO: we should hoist state into the DOM and update it instead of react-style re-rendering
+						// but:
+						//	1. where do we put `gen` (the current state for the value generator)? That's assuming it's even worth keeping
+						//	2. for wip purposes, it's convenient to have a thing that knows how to render any state, and oh look I accidentally a react.
 						function updateModule() {
 							if (state.cur >= ops.length) return;
 							if (!state.gen) state.gen = ops[state.cur]!.values();
@@ -1491,11 +1496,18 @@ const vis = {
 								// TODO we really want something like this for a `<text>`, don't we?
 								// or maybe for every result to be its own `g` so we can add a child?
 								// el.insertAdjacentElement()
-
-								// TODO oh of course (?) this blows up with:
-								// Uncaught HierarchyRequestError: Failed to execute 'appendChild' on 'Node': Nodes of type 'title' may not be inserted inside nodes of type 'rect'.
 								const titleEl = el.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'title'));
 								titleEl.textContent = state.gen.next().value || 'uh oh'; // TODO
+
+								// seems like there's a few problems to solve:
+								// 1. how wide does this result need to be now (we lose fixed width)
+								//		-> do we need to "re-flow" everything to the right?
+								//		-> should we be using SVG for this at all, then, if we're gonna be doing that?
+								// 2. where do we put the <text> ? we can center it on the result's center,
+								//     as long as we know we'll fit (see above)
+								// 3. how do we make the label accessible, without needing to supply an ID for every
+								// 		sub-result (or do we just generate one based on the indexes?)
+								// 			cf. https://www.scottohara.me/blog/2019/05/22/contextual-images-svgs-and-a11y.html
 							}
 						}
 
@@ -1539,6 +1551,7 @@ const vis = {
 									const gEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'g'));
 									gEl.classList.add('results');
 
+									const gen = op.values();
 									// <rect width="20" height="20" x="20" y="80 + ..." class="result dispatched completed"></rect>
 									for (var i = 0; i < parseInt(svgEl.dataset.lanes || ''); i++) {
 										const resEl = gEl.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
@@ -1547,9 +1560,21 @@ const vis = {
 										resEl.setAttribute('width', '20');
 										resEl.setAttribute('height', '20');
 										resEl.classList.add('result');
-										if (idx < state.cur || (idx == state.cur && state.last[i] == 'completed'))
-											resEl.classList.add('completed');
 										if (idx <= state.cur) resEl.classList.add('dispatched');
+										if (idx < state.cur || (idx == state.cur && state.last[i] == 'completed')) {
+											resEl.classList.add('completed');
+											const titleEl = resEl.appendChild(
+												document.createElementNS('http://www.w3.org/2000/svg', 'title')
+											);
+											titleEl.textContent = gen.next().value || 'oh no, generator ran out of values';
+											const textEl = gEl.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'text'));
+
+											textEl.setAttribute('x', '30');
+											textEl.setAttribute('y', `${80 + 30 * i + 10}px`);
+											textEl.setAttribute('dominant-baseline', 'middle');
+											textEl.setAttribute('text-anchor', 'middle');
+											textEl.textContent = titleEl.textContent;
+										}
 									}
 
 									return opSvg;
@@ -1575,7 +1600,7 @@ const vis = {
 
 							transform-box: fill-box;
 							transform-origin: center;
-							transform: rotate(45deg);
+							/* transform: rotate(45deg); */
 						}
 
 						circle {
