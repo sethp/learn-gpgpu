@@ -1,5 +1,5 @@
-<!DOCTYPE html><html> <head><title>gpgpu playground</title><link rel="stylesheet" type="text/css" media="all" href="/learn-gpgpu/styles/index.css"><script type="module" src="/learn-gpgpu/_astro/hoisted.B2kBaBR1.js"></script>
-<script type="module" src="/learn-gpgpu/_astro/page.BO5rBSqo.js"></script></head> <body> <nav> <ul> <li><a href="/learn-gpgpu/docs">docs/</a></li> </ul> </nav> <div id="talvos"> <div> <main> <textarea class="module" autocorrect="off" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="SPIR-V module assembly (spv_text format)" wrap="off">; SPIR-V
+<!DOCTYPE html><html> <head><title>gpgpu playground</title><link rel="stylesheet" type="text/css" media="all" href="/learn-gpgpu/styles/index.css"><script type="module" src="/learn-gpgpu/_astro/hoisted.n3hzDFsx.js"></script>
+<script type="module" src="/learn-gpgpu/_astro/page.BO5rBSqo.js"></script></head> <body> <nav> <ul> <li><a href="/learn-gpgpu/docs">docs/</a></li> </ul> </nav> <div id="talvos" class="vis-wip"> <div> <main> <textarea class="module" autocorrect="off" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="SPIR-V module assembly (spv_text format)" wrap="off">; SPIR-V
 ; Version: 1.5
 OpCapability Kernel
 OpCapability BuffersTALVOS
@@ -11,7 +11,7 @@ OpMemoryModel Logical OpenCL
 
 OpEntryPoint Kernel %main_fn &quot;main&quot; %gl_GlobalInvocationID
 
-OpExecutionGlobalSizeTALVOS %main_fn 16 1 1
+OpExecutionGlobalSizeTALVOS %main_fn 4 1 1
 
 OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
 OpDecorate %_arr_uint32_t ArrayStride 4
@@ -35,7 +35,7 @@ OpDecorate %_arr_uint32_t ArrayStride 4
 ; global arguments &amp; constants
                     %n = OpConstant %uint32_t 0
 %gl_GlobalInvocationID = OpVariable %_ptr_Input_gbl_id_t Input
-                 %buf0 = OpBufferTALVOS %_arr_PhysicalStorageBuffer_uint32_t PhysicalStorageBuffer 64 &quot;a&quot;
+                 %buf0 = OpBufferTALVOS %_arr_PhysicalStorageBuffer_uint32_t PhysicalStorageBuffer 16 &quot;a&quot;
 
 ; FILL_IDX entry point
 %main_fn = OpFunction %void_t None %void_fn_t
@@ -70,10 +70,10 @@ OpDecorate %_arr_uint32_t ArrayStride 4
 							spellcheck="false"
 							aria-label="Talvos commands (tcf format)"
 							wrap="off">{tcfChunks[1]}</textarea
-						> --> </section> </aside> </div> <div class="controls"> <select id="vis"> <option value="v0" selected="">v0: control blocks; executor state colors</option> <option value="v1">v1 (wip): control "scrubber"; SSA results</option> </select> <button class="validate exec">validate</button> <button class="run exec">run</button> <button class="debug exec">debug</button> <div hidden> <button class="exception">exception</button> <button class="assertion">assertion</button> <button class="shrubbery">shrubbery</button> </div> <div class="debugger" hidden> <!-- cf. PipelineExecutor::help --> <button class="step">step</button> <button class="switch">switch</button> <button class="print">print</button> <button class="continue">continue</button> <button class="stop">stop</button> <!-- missing: [break, breakpoint, help, quit] --> </div> </div> <!-- TODO
+						> --> </section> </aside> </div> <div class="controls"> <select id="vis"> <option value="v0">v0: control blocks; executor state colors</option> <option value="v1" selected="">v1 (wip): control "scrubber"; SSA results</option> </select> <button class="validate exec">validate</button> <button class="run exec">run</button> <button class="debug exec">debug</button> <div hidden> <button class="exception">exception</button> <button class="assertion">assertion</button> <button class="shrubbery">shrubbery</button> </div> <div class="debugger" hidden> <button class="tick">tick</button> <!-- cf. PipelineExecutor::help --> <button class="step">step</button> <button class="switch">switch</button> <button class="print">print</button> <button class="continue">continue</button> <button class="stop">stop</button> <!-- missing: [break, breakpoint, help, quit] --> </div> </div> <!-- TODO
 				 can we pull out just this one wodget into a "component"?
 				 it'd be nice to write some code for turning `102043253.21231222ms` into a human time
-			--> <output class="timing" style="display: block;"></output> <output class="error" style="display: block; background-color: #fcebeb;"></output> <shadow-root class="vis v0"> <svg xmlns="http://www.w3.org/2000/svg" class="vis0" data-cores="4" data-lanes="8"> <style>
+			--> <output class="timing" style="display: block;"></output> <output class="error" style="display: block; background-color: #fcebeb;"></output> <shadow-root class="vis v0 hidden"> <svg xmlns="http://www.w3.org/2000/svg" class="vis0" data-cores="4" data-lanes="8"> <style>
 						g.core :hover,
 						g.core :focus {
 							filter: drop-shadow(0 0 3px rgb(0 0 0 / 0.4));
@@ -160,127 +160,7 @@ OpDecorate %_arr_uint32_t ArrayStride 4
 				<rect width="100%" height="100%" fill="url(#grid)"></rect> --> <defs> <filter id="inset-shadow"> <!-- lol hates it --> <!-- <link
 							href="https://css-tricks.com/adding-shadows-to-svg-icons-with-css-and-svg-filters/#aa-using-svg-filters"
 							rel="help"
-						/> --> <!-- Shadow offset --> <feOffset dx="0" dy="0"></feOffset> <!-- Shadow blur --> <feGaussianBlur stdDeviation="6" result="offset-blur"></feGaussianBlur> <!-- Invert drop shadow to make an inset shadow --> <feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"></feComposite> <!-- Cut color inside shadow --> <feFlood flood-color="black" flood-opacity=".95" result="color"></feFlood> <feComposite operator="in" in="color" in2="inverse" result="shadow"></feComposite> <!-- Placing shadow over element --> <feComposite operator="over" in="shadow" in2="SourceGraphic"></feComposite> </filter> </defs>
-$<g class="core" transform="translate(0, 0)"> <rect class="ctrl" x="3.75" width="22.5" height="15"></rect> <rect x="32" width="15" height="15" data-phy-coords="{ 0, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 0, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 0, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 0, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 0, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 0, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 0, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 0, 7 }" class="lane" data-state="inactive"></rect> </g><g class="core" transform="translate(0, 16)"> <rect class="ctrl" x="3.75" width="22.5" height="15"></rect> <rect x="32" width="15" height="15" data-phy-coords="{ 1, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 1, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 1, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 1, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 1, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 1, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 1, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 1, 7 }" class="lane" data-state="inactive"></rect> </g><g class="core" transform="translate(0, 32)"> <rect class="ctrl" x="3.75" width="22.5" height="15"></rect> <rect x="32" width="15" height="15" data-phy-coords="{ 2, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 2, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 2, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 2, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 2, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 2, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 2, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 2, 7 }" class="lane" data-state="inactive"></rect> </g><g class="core" transform="translate(0, 48)"> <rect class="ctrl" x="3.75" width="22.5" height="15"></rect> <rect x="32" width="15" height="15" data-phy-coords="{ 3, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 3, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 3, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 3, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 3, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 3, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 3, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 3, 7 }" class="lane" data-state="inactive"></rect> </g> <!-- could put this above, if we knew how tall an em was (or translated negatively?) --> <text y="65"> <tspan x="0" dy="1em">physical {core, SIMT lane}:</tspan> <tspan class="physical">N/A</tspan> <tspan x="0" dy="1.2em">logical {workgroup, invocation}:</tspan> <tspan class="logical">N/A</tspan> </text> </svg> </shadow-root> <shadow-root class="vis v1 hidden"> <!-- TODO:
-					a. "step 1/2" button (half a "cycle", to show frame #2?)
-					b. some kind of "windowing" around the program, so we don't just try to generate an infinitely large thing?
-					c. a11y: https://www.sitepoint.com/tips-accessible-svg/ & https://www.sarasoueidan.com/blog/structuring-grouping-referencing-in-svg/
-				--> <style>
-					svg {
-						border: 2px solid #00f;
-					}
-				</style> <!-- see also: https://css-tricks.com/scale-svg/ --> <!-- frame #1 --> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px"> <style>
-						.result {
-							fill-opacity: 0;
-							stroke: black;
-							stroke-width: 1px;
-
-							transform-box: fill-box;
-							transform-origin: center;
-							transform: rotate(45deg);
-						}
-
-						rect {
-							fill-opacity: 0;
-							stroke: black;
-						}
-
-						rect.result:not(.dispatched) {
-							stroke: none;
-							fill: none;
-							/* stroke-dasharray: 1px 8px; */
-						}
-
-						rect.result.dispatched:not(.completed) {
-							stroke-dasharray: 2px;
-						}
-					</style> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px"> <style>
-							rect.yummy {
-								stroke: none;
-								fill: chocolate;
-								fill-opacity: 100%;
-							}
-
-							.vertical.centerline {
-								stroke: none;
-							}
-						</style> <defs> <symbol id="handle" width="30" height="30" viewBox="0 0 25 30" preserveAspectRatio="none"> <polygon points="5 0,25 0,25 20,15 30,5 20"></polygon> </symbol> <!-- <symbol id="result" width="80" height="80">
-					<polygon points="0 40,40 80,80 40,40 0" style=" fill: blue; stroke:black;"></polygon>
-				</symbol> --> </defs> <g class="core"> <!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> --> <rect x="0" y="30" height="200" width="60"></rect> <!-- 40x30 at (10 40); centerline: 30 --> <rect x="10" y="40" height="30" width="40" class="yummy"></rect> </g> <line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text> <g> <rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect> </g> </g> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text> <g> <rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="110" class="result dispatched"></rect> <rect width="20" height="20" x="20" y="140" class="result dispatched"></rect> <rect width="20" height="20" x="20" y="170" class="result dispatched"></rect> </g> </g> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text> <g> <rect width="20" height="20" x="20" y="80" class="result"></rect> <rect width="20" height="20" x="20" y="110" class="result"></rect> <rect width="20" height="20" x="20" y="140" class="result"></rect> <rect width="20" height="20" x="20" y="170" class="result"></rect> </g> </g> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text></g> <g> <rect width="20" height="20" x="20" y="80" class="result"></rect> <rect width="20" height="20" x="20" y="110" class="result"></rect> <rect width="20" height="20" x="20" y="140" class="result"></rect> <rect width="20" height="20" x="20" y="170" class="result"></rect> </g> </svg> </svg> <!-- frame #2 --> <!-- (frame #1 + 30px for "slider" position; marked all %3 results [ops?] as "completed") --> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px"> <style>
-						.result {
-							fill-opacity: 0;
-							stroke: black;
-							stroke-width: 1px;
-
-							transform-box: fill-box;
-							transform-origin: center;
-							transform: rotate(45deg);
-						}
-
-						rect {
-							fill-opacity: 0;
-							stroke: black;
-						}
-
-						rect.result:not(.dispatched) {
-							stroke: none;
-							fill: none;
-							/* stroke-dasharray: 1px 8px; */
-						}
-
-						rect.result.dispatched:not(.completed) {
-							stroke-dasharray: 2px;
-						}
-					</style> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="90" width="60px" height="240px"> <style>
-							rect.yummy {
-								stroke: none;
-								fill: chocolate;
-								fill-opacity: 100%;
-							}
-
-							.vertical.centerline {
-								stroke: none;
-							}
-						</style> <defs> <symbol id="handle" width="30" height="30" viewBox="0 0 25 30" preserveAspectRatio="none"> <polygon points="5 0,25 0,25 20,15 30,5 20"></polygon> </symbol> <!-- <symbol id="result" width="80" height="80">
-					<polygon points="0 40,40 80,80 40,40 0" style=" fill: blue; stroke:black;"></polygon>
-				</symbol> --> </defs> <!-- <g class="core_newclass"> --> <!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> --> <rect x="0" y="30" height="200" width="60"></rect> <!-- 40x30 at (10 40); centerline: 30 --> <rect x="10" y="40" height="30" width="40" class="yummy"></rect> <!-- </g> --> <line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text> <g> <rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect> </g> </g> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text> <g> <rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect> </g> </g> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text> <g> <rect width="20" height="20" x="20" y="80" class="result"></rect> <rect width="20" height="20" x="20" y="110" class="result"></rect> <rect width="20" height="20" x="20" y="140" class="result"></rect> <rect width="20" height="20" x="20" y="170" class="result"></rect> </g> </g> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text></g> <g> <rect width="20" height="20" x="20" y="80" class="result"></rect> <rect width="20" height="20" x="20" y="110" class="result"></rect> <rect width="20" height="20" x="20" y="140" class="result"></rect> <rect width="20" height="20" x="20" y="170" class="result"></rect> </g> </svg> </svg> <!-- frame #3 --> <!-- (frame #2 + 30px for "slider" position; marked all %4 results [ops?] as "dispatched") --> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px"> <style>
-						.result {
-							fill-opacity: 0;
-							stroke: black;
-							stroke-width: 1px;
-
-							transform-box: fill-box;
-							transform-origin: center;
-							transform: rotate(45deg);
-						}
-
-						rect {
-							fill-opacity: 0;
-							stroke: black;
-						}
-
-						rect.result:not(.dispatched) {
-							stroke: none;
-							fill: none;
-							/* stroke-dasharray: 1px 8px; */
-						}
-
-						rect.result.dispatched:not(.completed) {
-							stroke-dasharray: 2px;
-						}
-					</style> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px"> <style>
-							rect.yummy {
-								stroke: none;
-								fill: chocolate;
-								fill-opacity: 100%;
-							}
-
-							.vertical.centerline {
-								stroke: none;
-							}
-						</style> <defs> <symbol id="handle" width="30" height="30" viewBox="0 0 25 30" preserveAspectRatio="none"> <polygon points="5 0,25 0,25 20,15 30,5 20"></polygon> </symbol> <!-- <symbol id="result" width="80" height="80">
-					<polygon points="0 40,40 80,80 40,40 0" style=" fill: blue; stroke:black;"></polygon>
-				</symbol> --> </defs> <!-- <g class="core_newclass"> --> <!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> --> <rect x="0" y="30" height="200" width="60"></rect> <!-- 40x30 at (10 40); centerline: 30 --> <rect x="10" y="40" height="30" width="40" class="yummy"></rect> <!-- </g> --> <line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text> <g> <rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect> </g> </g> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text> <g> <rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect> <rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect> </g> </g> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text> <g> <rect width="20" height="20" x="20" y="80" class="result dispatched"></rect> <rect width="20" height="20" x="20" y="110" class="result dispatched"></rect> <rect width="20" height="20" x="20" y="140" class="result dispatched"></rect> <rect width="20" height="20" x="20" y="170" class="result dispatched"></rect> </g> </g> </svg> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px"> <g class="op"> <circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle> <text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text></g> <g> <rect width="20" height="20" x="20" y="80" class="result"></rect> <rect width="20" height="20" x="20" y="110" class="result"></rect> <rect width="20" height="20" x="20" y="140" class="result"></rect> <rect width="20" height="20" x="20" y="170" class="result"></rect> </g> </svg> </svg> </shadow-root> <div class="controls vis v1 hidden"> <button class="vis reset">reset</button> <button class="vis step0">step (vis)</button> <button class="vis step1">step (op)</button> </div> <shadow-root class="vis v1 hidden">   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px" class="vis1" data-cores="TODO" data-lanes="4"> <style>
+						/> --> <!-- Shadow offset --> <feOffset dx="0" dy="0"></feOffset> <!-- Shadow blur --> <feGaussianBlur stdDeviation="6" result="offset-blur"></feGaussianBlur> <!-- Invert drop shadow to make an inset shadow --> <feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"></feComposite> <!-- Cut color inside shadow --> <feFlood flood-color="black" flood-opacity=".95" result="color"></feFlood> <feComposite operator="in" in="color" in2="inverse" result="shadow"></feComposite> <!-- Placing shadow over element --> <feComposite operator="over" in="shadow" in2="SourceGraphic"></feComposite> </filter> </defs> <g class="core" transform="translate(0, 0)"> <rect class="ctrl" x="3.75" width="22.5" height="15"></rect> <rect x="32" width="15" height="15" data-phy-coords="{ 0, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 0, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 0, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 0, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 0, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 0, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 0, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 0, 7 }" class="lane" data-state="inactive"></rect> </g><g class="core" transform="translate(0, 16)"> <rect class="ctrl" x="3.75" width="22.5" height="15"></rect> <rect x="32" width="15" height="15" data-phy-coords="{ 1, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 1, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 1, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 1, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 1, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 1, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 1, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 1, 7 }" class="lane" data-state="inactive"></rect> </g><g class="core" transform="translate(0, 32)"> <rect class="ctrl" x="3.75" width="22.5" height="15"></rect> <rect x="32" width="15" height="15" data-phy-coords="{ 2, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 2, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 2, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 2, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 2, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 2, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 2, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 2, 7 }" class="lane" data-state="inactive"></rect> </g><g class="core" transform="translate(0, 48)"> <rect class="ctrl" x="3.75" width="22.5" height="15"></rect> <rect x="32" width="15" height="15" data-phy-coords="{ 3, 0 }" class="lane" data-state="inactive"></rect><rect x="48" width="15" height="15" data-phy-coords="{ 3, 1 }" class="lane" data-state="inactive"></rect><rect x="64" width="15" height="15" data-phy-coords="{ 3, 2 }" class="lane" data-state="inactive"></rect><rect x="80" width="15" height="15" data-phy-coords="{ 3, 3 }" class="lane" data-state="inactive"></rect><rect x="96" width="15" height="15" data-phy-coords="{ 3, 4 }" class="lane" data-state="inactive"></rect><rect x="112" width="15" height="15" data-phy-coords="{ 3, 5 }" class="lane" data-state="inactive"></rect><rect x="128" width="15" height="15" data-phy-coords="{ 3, 6 }" class="lane" data-state="inactive"></rect><rect x="144" width="15" height="15" data-phy-coords="{ 3, 7 }" class="lane" data-state="inactive"></rect> </g> <!-- could put this above, if we knew how tall an em was (or translated negatively?) --> <text y="65"> <tspan x="0" dy="1em">physical {core, SIMT lane}:</tspan> <tspan class="physical">N/A</tspan> <tspan x="0" dy="1.2em">logical {workgroup, invocation}:</tspan> <tspan class="logical">N/A</tspan> </text> </svg> </shadow-root> <div class="controls vis v1" hidden> <button class="vis reset">reset</button> <button class="vis step0">step (vis)</button> <button class="vis step1">step (op)</button> </div> <shadow-root class="vis v1">   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px" class="vis1" data-cores="TODO" data-lanes="4"> <style>
 						.result {
 							fill-opacity: 0;
 							stroke: black;
