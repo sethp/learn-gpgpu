@@ -20,7 +20,7 @@ async function getContents(c: Collection, f: Id) {
 // TODO: doesn't css do multiplication now? could we just say `x = width * (num prior siblings) + padding * (num prior siblings)`? should we?
 // lol sorta: https://stackoverflow.com/a/66262844 (just gotta pre-generate the identity mapping from `nth-child(n) -> --var: n` for all n we care about)
 const vis = {
-	init: 'v0',
+	init: 'v1',
 	lanes: {
 		width: 15,
 		height: 15,
@@ -57,7 +57,7 @@ const vis = {
 			import { Ptr } from '../lib/binding/ptr';
 			import { BitSet } from '../lib/bitset';
 			import { States, ExecutionUniverse } from '../lib/executionUniverse';
-			import { Talvos$$Device, Talvos$$Module, Talvos$$Params } from '../lib/talvos';
+			import { Talvos$$Device, Talvos$$Dim3, Talvos$$Module, Talvos$$Params } from '../lib/talvos';
 			import type { MainModule } from '../wasm/talvos-wasm';
 			import talvos from '../wasm/talvos-wasm';
 
@@ -110,6 +110,11 @@ const vis = {
 			window.addEventListener('unhandledrejection', function (event) {
 				errorEl.value = '' + event.reason;
 			});
+
+			const ev_start = new Event('event-binding-lol-TODO-start');
+			const ev_finish = new Event('event-binding-lol-TODO-finish');
+			const ev_tick = new Event('event-binding-lol-TODO-tick');
+			const ev_step = new Event('event-binding-lol-TODO-step');
 
 			const svgEl = new Promise<SVGElement>(async (resolve, reject) => {
 				// TODO we can do better, but...
@@ -227,8 +232,8 @@ const vis = {
 
 			const buffersEl = document.querySelector<HTMLElement>('#talvos section.buffers')!;
 			// TODO source this from inside Talvos' model
-			// TODO uninit memory
 			var lastBuffers: any = {};
+			// TODO uninit memory
 			function updateBuffers(Dev: Talvos$$Device, Mod: Talvos$$Module) {
 				buffersEl.innerHTML = '';
 				const Mem = Dev.GlobalMemory;
@@ -243,17 +248,17 @@ const vis = {
 					const listEl = document.createElement('ol');
 
 					const addr = Objs.get(buf.Id).Data.data.getBigUint64(0, LITTLE_ENDIAN);
-					const ptr = Mem.deref(addr, 64);
+					const ptr = Mem.deref(addr, buf.Size);
 
-					// TODO: make this real
-					const size = 4;
+					// TODO: make this real (read the type)
+					const elemSize = 4;
 					const fn = (offset: number) => ptr.data.getUint32(offset, LITTLE_ENDIAN);
 
 					const last = lastBuffers['0x' + addr.toString(16)] ?? [];
 					var cur = [];
-					for (var i = 0; i <= 15; i++) {
+					for (var i = 0; i < buf.Size / elemSize; i++) {
 						const liEl = document.createElement('li');
-						liEl.innerText = cur[i] = '' + fn(i * size);
+						liEl.innerText = cur[i] = '' + fn(i * elemSize);
 						if (i in last && last[i] != cur[i]) liEl.dataset.prev = last[i]!;
 
 						listEl.appendChild(liEl);
@@ -337,6 +342,8 @@ const vis = {
 									Session_print,
 									Session_continue,
 									Session_printContext,
+									Session_getCurrentId,
+									Session_tick,
 
 									Session_fetch_shrubbery,
 								},
@@ -390,6 +397,7 @@ const vis = {
 									params!: Talvos$$Params;
 									module!: Talvos$$Module;
 									device!: Talvos$$Device;
+									lastId!: Talvos$$Dim3;
 
 									static bind(ptr: unknown) {
 										try {
@@ -408,6 +416,7 @@ const vis = {
 											self.device = new Talvos$$Device(
 												new Ptr(wasmMemory.buffer, Session__device_ref(ptr), Talvos$$Device.SIZE)
 											);
+											self.lastId = new Talvos$$Dim3(self.arena.alloc(Talvos$$Dim3.SIZE));
 										} catch (ex) {
 											Session__destroy__(ptr);
 											if (self?.arena) destroy(self.arena);
@@ -435,8 +444,21 @@ const vis = {
 									start() {
 										lastBuffers = {};
 										Session_start(this.ptr, this.lastOp.ptr.asRef());
+										Session_getCurrentId(this.ptr, this.lastId.ptr.asRef());
 										doUpdateVis(this.lastOp);
 										updateBuffers(this.device, this.module);
+									}
+									async tick(): Promise<number> {
+										var ret = Session_tick(this.ptr);
+										if (ret == 0) {
+											Session_getCurrentId(this.ptr, this.lastId.ptr.asRef());
+										}
+										doUpdateVis(this.lastOp);
+										updateBuffers(this.device, this.module);
+										if (ret > 0) {
+											clearVis();
+										}
+										return ret;
 									}
 									async step(): Promise<number> {
 										this.laneMask.clear();
@@ -445,6 +467,9 @@ const vis = {
 											if (el.classList.contains('selected')) this.laneMask.add(i);
 										});
 										var ret = Session_step(this.ptr, this.laneMask.asRef(), this.lastOp.asRef());
+										if (ret == 0) {
+											Session_getCurrentId(this.ptr, this.lastId.ptr.asRef());
+										}
 										doUpdateVis(this.lastOp);
 										updateBuffers(this.device, this.module);
 										if (ret > 0) {
@@ -469,6 +494,7 @@ const vis = {
 									continue() {
 										Session_continue(this.ptr, this.lastOp.ptr.asRef());
 										doUpdateVis(this.lastOp);
+										updateBuffers(this.device, this.module);
 									}
 									printContext() {
 										Session_printContext(this.ptr);
@@ -522,7 +548,7 @@ const vis = {
 				stdioEl.value = '';
 				errorEl.value = '';
 				rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `...`;
-				rootEl.querySelectorAll<HTMLButtonElement>('button.exec').forEach((el) => (el.disabled = true));
+				rootEl.querySelectorAll<HTMLButtonElement>('button.exec,textarea').forEach((el) => (el.disabled = true));
 				start = start ?? window.performance.mark('talvos');
 				return (async () => f())()
 					.catch(async (ex) => {
@@ -558,7 +584,9 @@ const vis = {
 					.finally(() => {
 						const call = window.performance.measure(start.name, start.name);
 						rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `done in ${call.duration}ms`;
-						rootEl.querySelectorAll<HTMLButtonElement>('button.exec').forEach((el) => el.removeAttribute('disabled'));
+						rootEl
+							.querySelectorAll<HTMLButtonElement>('button.exec,textarea')
+							.forEach((el) => el.removeAttribute('disabled'));
 						// console.log(`done! took ${call.duration}ms`);
 						// console.log('output:\n', outBuf);
 					});
@@ -609,7 +637,7 @@ const vis = {
 				stdioEl.value = '';
 				errorEl.value = '';
 				rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `...`;
-				rootEl.querySelectorAll<HTMLButtonElement>('button.exec').forEach((el) => (el.disabled = true));
+				rootEl.querySelectorAll<HTMLButtonElement>('button.exec,textarea').forEach((el) => (el.disabled = true));
 				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
 
 				const start = window.performance.mark('debug', { detail: { text } });
@@ -623,7 +651,10 @@ const vis = {
 					debugCtrl.hidden = true;
 					// remove references to 1) allow the session to be GC'd, and 2) safety of the dangling pointer
 					debugCtrl.querySelectorAll<HTMLButtonElement>('button').forEach((el) => (el.onclick = null));
-					rootEl.querySelectorAll<HTMLButtonElement>('button.exec').forEach((el) => el.removeAttribute('disabled'));
+					rootEl
+						.querySelectorAll<HTMLButtonElement>('button.exec,textarea')
+						.forEach((el) => el.removeAttribute('disabled'));
+					window.dispatchEvent(ev_finish);
 
 					destroy(session);
 
@@ -633,7 +664,9 @@ const vis = {
 
 				try {
 					session.start();
+					window.dispatchEvent(ev_start);
 
+					stdioEl.value = `@ {${[...session.lastId]}} (logical)\n`;
 					session.printContext();
 				} catch (e) {
 					finish();
@@ -642,15 +675,35 @@ const vis = {
 
 				const FINISHED = 1; // TODO sync with talvos::PipelineExecutor::StepResult
 
+				debugCtrl.querySelector<HTMLButtonElement>('button.tick')!.onclick = async function () {
+					stdioEl.value = '';
+					errorEl.value = '';
+					try {
+						const last = await session.tick();
+						window.dispatchEvent(ev_tick);
+						if (last == FINISHED) {
+							finish();
+						}
+
+						// TODO remove (confusing)
+						stdioEl.value = `@ {${[...session.lastId]}} (logical)\n`;
+						session.printContext();
+					} catch (e) {
+						finish();
+						throw e;
+					}
+				};
 				debugCtrl.querySelector<HTMLButtonElement>('button.step')!.onclick = async function () {
 					stdioEl.value = '';
 					errorEl.value = '';
 					try {
 						const last = await session.step();
+						window.dispatchEvent(ev_step);
 						if (last == FINISHED) {
 							finish();
 						}
 
+						stdioEl.value = `@ {${[...session.lastId]}} (logical)\n`;
 						session.printContext();
 					} catch (e) {
 						finish();
@@ -803,6 +856,7 @@ const vis = {
 				</div>
 
 				<div class="debugger" hidden>
+					<button class="tick">tick</button>
 					<!-- cf. PipelineExecutor::help -->
 					<button class="step">step</button>
 					<button class="switch">switch</button>
@@ -941,7 +995,7 @@ const vis = {
 						</filter>
 					</defs>
 
-					${
+					{
 						vis.cores.map((core, i) => (
 							<g class="core" transform={`translate(0, ${vis.lanes.height * i + vis.lanes.padding.y * i})`}>
 								<rect class="ctrl" x={vis.lanes.width / 4} width={vis.lanes.width * 1.5} height={vis.lanes.height} />
@@ -969,374 +1023,7 @@ const vis = {
 				</svg>
 			</shadow-root>
 
-			<shadow-root class:list={['vis', 'v1', ...(vis.init == 'v1' ? [] : ['hidden'])]}>
-				<!-- TODO:
-					a. "step 1/2" button (half a "cycle", to show frame #2?)
-					b. some kind of "windowing" around the program, so we don't just try to generate an infinitely large thing?
-					c. a11y: https://www.sitepoint.com/tips-accessible-svg/ & https://www.sarasoueidan.com/blog/structuring-grouping-referencing-in-svg/
-				-->
-
-				<style is:inline>
-					svg {
-						border: 2px solid #00f;
-					}
-				</style>
-				<!-- see also: https://css-tricks.com/scale-svg/ -->
-				<!-- frame #1 -->
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px">
-					<style>
-						.result {
-							fill-opacity: 0;
-							stroke: black;
-							stroke-width: 1px;
-
-							transform-box: fill-box;
-							transform-origin: center;
-							transform: rotate(45deg);
-						}
-
-						rect {
-							fill-opacity: 0;
-							stroke: black;
-						}
-
-						rect.result:not(.dispatched) {
-							stroke: none;
-							fill: none;
-							/* stroke-dasharray: 1px 8px; */
-						}
-
-						rect.result.dispatched:not(.completed) {
-							stroke-dasharray: 2px;
-						}
-					</style>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px">
-						<style>
-							rect.yummy {
-								stroke: none;
-								fill: chocolate;
-								fill-opacity: 100%;
-							}
-
-							.vertical.centerline {
-								stroke: none;
-							}
-						</style>
-						<defs>
-							<symbol id="handle" width="30" height="30" viewBox="0 0 25 30" preserveAspectRatio="none">
-								<polygon points="5 0,25 0,25 20,15 30,5 20"></polygon>
-							</symbol>
-
-							<!-- <symbol id="result" width="80" height="80">
-					<polygon points="0 40,40 80,80 40,40 0" style=" fill: blue; stroke:black;"></polygon>
-				</symbol> -->
-						</defs>
-
-						<g class="core">
-							<!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> -->
-							<rect x="0" y="30" height="200" width="60"></rect>
-
-							<!-- 40x30 at (10 40); centerline: 30 -->
-							<rect x="10" y="40" height="30" width="40" class="yummy"></rect>
-						</g>
-
-						<line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
-
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result dispatched"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result dispatched"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result dispatched"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text>
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text
-							></g
-						>
-						<g>
-							<rect width="20" height="20" x="20" y="80" class="result"></rect>
-							<rect width="20" height="20" x="20" y="110" class="result"></rect>
-							<rect width="20" height="20" x="20" y="140" class="result"></rect>
-							<rect width="20" height="20" x="20" y="170" class="result"></rect>
-						</g>
-					</svg>
-				</svg>
-
-				<!-- frame #2 -->
-				<!-- (frame #1 + 30px for "slider" position; marked all %3 results [ops?] as "completed") -->
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px">
-					<style>
-						.result {
-							fill-opacity: 0;
-							stroke: black;
-							stroke-width: 1px;
-
-							transform-box: fill-box;
-							transform-origin: center;
-							transform: rotate(45deg);
-						}
-
-						rect {
-							fill-opacity: 0;
-							stroke: black;
-						}
-
-						rect.result:not(.dispatched) {
-							stroke: none;
-							fill: none;
-							/* stroke-dasharray: 1px 8px; */
-						}
-
-						rect.result.dispatched:not(.completed) {
-							stroke-dasharray: 2px;
-						}
-					</style>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="90" width="60px" height="240px">
-						<style>
-							rect.yummy {
-								stroke: none;
-								fill: chocolate;
-								fill-opacity: 100%;
-							}
-
-							.vertical.centerline {
-								stroke: none;
-							}
-						</style>
-						<defs>
-							<symbol id="handle" width="30" height="30" viewBox="0 0 25 30" preserveAspectRatio="none">
-								<polygon points="5 0,25 0,25 20,15 30,5 20"></polygon>
-							</symbol>
-
-							<!-- <symbol id="result" width="80" height="80">
-					<polygon points="0 40,40 80,80 40,40 0" style=" fill: blue; stroke:black;"></polygon>
-				</symbol> -->
-						</defs>
-
-						<!-- <g class="core_newclass"> -->
-						<!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> -->
-						<rect x="0" y="30" height="200" width="60"></rect>
-
-						<!-- 40x30 at (10 40); centerline: 30 -->
-						<rect x="10" y="40" height="30" width="40" class="yummy"></rect>
-						<!-- </g> -->
-
-						<line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
-
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text>
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text
-							></g
-						>
-						<g>
-							<rect width="20" height="20" x="20" y="80" class="result"></rect>
-							<rect width="20" height="20" x="20" y="110" class="result"></rect>
-							<rect width="20" height="20" x="20" y="140" class="result"></rect>
-							<rect width="20" height="20" x="20" y="170" class="result"></rect>
-						</g>
-					</svg>
-				</svg>
-
-				<!-- frame #3 -->
-				<!-- (frame #2 + 30px for "slider" position; marked all %4 results [ops?] as "dispatched") -->
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" height="240px">
-					<style>
-						.result {
-							fill-opacity: 0;
-							stroke: black;
-							stroke-width: 1px;
-
-							transform-box: fill-box;
-							transform-origin: center;
-							transform: rotate(45deg);
-						}
-
-						rect {
-							fill-opacity: 0;
-							stroke: black;
-						}
-
-						rect.result:not(.dispatched) {
-							stroke: none;
-							fill: none;
-							/* stroke-dasharray: 1px 8px; */
-						}
-
-						rect.result.dispatched:not(.completed) {
-							stroke-dasharray: 2px;
-						}
-					</style>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px">
-						<style>
-							rect.yummy {
-								stroke: none;
-								fill: chocolate;
-								fill-opacity: 100%;
-							}
-
-							.vertical.centerline {
-								stroke: none;
-							}
-						</style>
-						<defs>
-							<symbol id="handle" width="30" height="30" viewBox="0 0 25 30" preserveAspectRatio="none">
-								<polygon points="5 0,25 0,25 20,15 30,5 20"></polygon>
-							</symbol>
-
-							<!-- <symbol id="result" width="80" height="80">
-					<polygon points="0 40,40 80,80 40,40 0" style=" fill: blue; stroke:black;"></polygon>
-				</symbol> -->
-						</defs>
-
-						<!-- <g class="core_newclass"> -->
-						<!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> -->
-						<rect x="0" y="30" height="200" width="60"></rect>
-
-						<!-- 40x30 at (10 40); centerline: 30 -->
-						<rect x="10" y="40" height="30" width="40" class="yummy"></rect>
-						<!-- </g> -->
-
-						<line x1="30" y1="0" x2="30" y2="100%" stroke="grey" class="vertical centerline"></line>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="0" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%2</text>
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="60" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%3</text>
-
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result dispatched completed"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result dispatched completed"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="120" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">%4</text>
-							<g>
-								<rect width="20" height="20" x="20" y="80" class="result dispatched"></rect>
-								<rect width="20" height="20" x="20" y="110" class="result dispatched"></rect>
-								<rect width="20" height="20" x="20" y="140" class="result dispatched"></rect>
-								<rect width="20" height="20" x="20" y="170" class="result dispatched"></rect>
-							</g>
-						</g>
-					</svg>
-
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 240" x="180" width="60px" height="240px">
-						<g class="op">
-							<circle cx="30" cy="55" r="12" fill="white" stroke="black"></circle>
-							<text x="30" y="55" dominant-baseline="middle" text-anchor="middle" style="font-size: smaller;">sd</text
-							></g
-						>
-						<g>
-							<rect width="20" height="20" x="20" y="80" class="result"></rect>
-							<rect width="20" height="20" x="20" y="110" class="result"></rect>
-							<rect width="20" height="20" x="20" y="140" class="result"></rect>
-							<rect width="20" height="20" x="20" y="170" class="result"></rect>
-						</g>
-					</svg>
-				</svg>
-			</shadow-root>
-
-			<div class="controls vis v1" class:list={[...(vis.init == 'v1' ? [] : ['hidden'])]}>
+			<div class="controls vis v1" class:list={[...(vis.init == 'v1' ? [] : ['hidden'])]} hidden>
 				<button class="vis reset">reset</button>
 				<button class="vis step0">step (vis)</button>
 				<button class="vis step1">step (op)</button>
@@ -1387,7 +1074,7 @@ const vis = {
 								label: '%4',
 								kind: 'alu',
 								values: function* () {
-									const base = 0x2000000000000;
+									// const base = 0x2000000000000;
 									let offset = 0;
 									while (true) {
 										const last = offset;
@@ -1412,12 +1099,14 @@ const vis = {
 						function resetState() {
 							state = {
 								cur: 1,
-								last: ['completed'],
-								gen: (() => {
-									const it = ops[1]!.values();
-									it.next();
-									return it;
-								})(),
+								// last: ['completed'],
+								// gen: (() => {
+								// 	const it = ops[1]!.values();
+								// 	it.next();
+								// 	return it;
+								// })(),
+								last: [],
+								gen: ops[1]!.values(),
 							};
 						}
 						resetState();
@@ -1427,8 +1116,7 @@ const vis = {
 							resetState();
 							drawModule();
 						});
-						const stepVisEl = document.querySelector('#talvos .controls button.vis.step0')!;
-						stepVisEl.addEventListener('click', function () {
+						function tick() {
 							if (state.cur >= ops.length) return;
 							switch (ops[state.cur]?.kind) {
 								case 'alu':
@@ -1457,15 +1145,14 @@ const vis = {
 								};
 							}
 							drawModule();
-						});
-						const stepLineEl = document.querySelector('#talvos .controls button.vis.step1')!;
-						stepLineEl.addEventListener('click', function () {
+						}
+						function step() {
 							state = {
 								cur: state.cur + 1,
 								last: [],
 							};
 							drawModule();
-						});
+						}
 
 						const svgEl = await new Promise<SVGElement>(async (resolve, reject) => {
 							// TODO we can do better, but...
@@ -1485,6 +1172,7 @@ const vis = {
 						// but:
 						//	1. where do we put `gen` (the current state for the value generator)? That's assuming it's even worth keeping
 						//	2. for wip purposes, it's convenient to have a thing that knows how to render any state, and oh look I accidentally a react.
+						// @ts-expect-error(6133)
 						function updateModule() {
 							if (state.cur >= ops.length) return;
 							if (!state.gen) state.gen = ops[state.cur]!.values();
@@ -1581,7 +1269,17 @@ const vis = {
 								})
 							);
 						}
-						drawModule();
+
+						document.querySelector('#talvos .controls button.vis.step0')!.addEventListener('click', tick);
+						document.querySelector('#talvos .controls button.vis.step1')!.addEventListener('click', step);
+
+						window.addEventListener('event-binding-lol-TODO-start', function () {
+							resetState();
+							drawModule();
+						});
+						window.addEventListener('event-binding-lol-TODO-tick', tick);
+						window.addEventListener('event-binding-lol-TODO-step', step);
+						window.addEventListener('event-binding-lol-TODO-finish', resetState); // reset, but don't redraw
 					})();
 				</script>
 				<svg

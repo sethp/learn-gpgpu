@@ -56,7 +56,9 @@ interface WasmModule {
   _Session_dumpBuffers(_0: number): void;
   _Session_start(_0: number, _1: number): void;
   _Session_printContext(_0: number): void;
+  _Session_getCurrentId(_0: number, _1: number): void;
   _Session_step(_0: number, _1: number, _2: number): number;
+  _Session_tick(_0: number): number;
   _Session_continue(_0: number, _1: number): void;
   _Session_print(_0: number, _1: number, _2: number): void;
   _Session_switch(_0: number, _1: number, _2: number): void;

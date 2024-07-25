@@ -158,3 +158,43 @@ export class Talvos$$Device {
 	}
 }
 
+export class Talvos$$Dim3 {
+	constructor(public ptr: Ptr) { }
+	static get SIZE() {
+		return 12;
+	}
+
+	get X() { return this.ptr.data.getUint32(0, LITTLE_ENDIAN); }
+	get Y() { return this.ptr.data.getUint32(4, LITTLE_ENDIAN); }
+	get Z() { return this.ptr.data.getUint32(8, LITTLE_ENDIAN); }
+
+	// fixme: this could be a CArray type or something in lib/binding
+	get(idx: number) {
+		const elemSize = 4;
+		const n = 3;
+		if (idx < 0 || idx > n) {
+			throw new Error(`out of bounds access: for index ${idx} with elements [0..${n})`);
+		}
+		const offset = idx * elemSize;
+		return this.ptr.data.getUint32(offset, LITTLE_ENDIAN);
+	}
+
+	[Symbol.iterator]() {
+		const [start, end] = this.ptr.reslice(Talvos$$Dim3.SIZE);
+		const elemSize = 4;
+		var itr = start;
+		return {
+			next() {
+				if (itr.addr >= end.addr) return { done: true, value: undefined as never };
+
+				const ret = {
+					done: false,
+					value: itr.data.getUint32(0, LITTLE_ENDIAN),
+				};
+				itr = itr.slice(elemSize);
+				return ret;
+			},
+		};
+	}
+
+}

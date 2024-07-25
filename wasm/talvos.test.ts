@@ -4,6 +4,11 @@ import main from './testdata/main.spvasm?raw'
 // TODO: replace with main.spvasm ?
 import fill from '../content/talvos/fill.spvasm.?raw'
 import dup from './testdata/dup_entry.spvasm?raw'
+import ticks from './testdata/ticks.spvasm?raw'
+import { ExecutionUniverse, States } from '../lib/executionUniverse';
+import { Arena, Ptr } from '../lib/binding';
+import { BitSet } from '../lib/bitset';
+import { Talvos$$Device, Talvos$$Dim3 } from '../lib/talvos';
 
 
 describe('talvos', () => {
@@ -102,6 +107,123 @@ describe('talvos', () => {
 			  series[14] = 14
 			  series[15] = 15
 			"
+		`);
+	})
+
+	test('ticks', async () => {
+		let [stdout, stderr] = ['', ''];
+		let instance = await talvos({
+			print: (text: any) => { stdout += text + '\n' },
+			printErr: (text: any) => { stderr += text; console.error(text) },
+		});
+		let { wasmExports: {
+			// we use cwrap for Session__create__
+			Session__destroy__,
+			Session__device_ref,
+
+			Session_start,
+			// Session_step,
+			Session_tick,
+
+			Session_printContext,
+			Session_getCurrentId,
+			Session_switch,
+
+		}, wasmMemory } = instance;
+
+		// goal: get this thing "start"'d, assert something about its state, then step a tick, then do the same again
+		const ptr = instance.cwrap('Session__create__', 'void', ['string', 'string'])(ticks, `
+			ENTRY main
+			EXEC`);
+
+		// TODO: trying not to copy-pasta everything, but...
+		function toCArgs(args: string[]) {
+			const cstrs = args.map(instance.stringToUTF8OnStack) as number[];
+			const argv = instance.stackAlloc(cstrs.length);
+			cstrs.forEach((s, i) => {
+				instance.HEAP32[(argv + i * 4) >> 2] = s;
+			});
+
+			return [cstrs.length, argv];
+		}
+
+		const arenaSize = 1 << 12;
+		let arenaAlloc;
+		try {
+			arenaAlloc = instance._malloc(arenaSize);
+			const arena = new Arena(new Ptr(wasmMemory.buffer, arenaAlloc, arenaSize));
+			const lastOp = new ExecutionUniverse(arena.alloc(ExecutionUniverse.SIZE));
+			// const laneMask = new BitSet(undefined, { data: arena.alloc(8).data });
+			const Id: Talvos$$Dim3 = new Talvos$$Dim3(arena.alloc(Talvos$$Dim3.SIZE));
+
+			Session_start(ptr, lastOp.ptr.asRef());
+			const device = new Talvos$$Device(
+				new Ptr(wasmMemory.buffer, Session__device_ref(ptr), Talvos$$Device.SIZE)
+			);
+
+			// TODO: once we fix the "start also steps once" bug
+			// Session_step(ptr, laneMask.asRef(), lastOp.ptr.asRef());
+
+			let [a, b, c, d, ...rest] = [...lastOp.LaneStates].map((e) => e.State);
+			// We have four "active" lanes....
+			expect([a, b, c, d]).toEqual([States.Active, States.Active, States.Active, States.Active]);
+			// ... and only those four
+			rest.forEach((e, i) =>
+				expect(e, `mismatch starting at index ${i}: [${rest.slice(i)}]`).toBe(States.NotLaunched))
+
+			Session_printContext(ptr);
+			// NB: this is just the invocation @ { 0, 0, 0}
+			Session_getCurrentId(ptr, Id.ptr.asRef());
+			expect([...Id]).toEqual([3, 0, 0]);
+			expect(stdout).toMatchInlineSnapshot(`
+				"          OpLabel %1
+				     %2 = OpAccessChain %11 %5 %12
+				->   %3 = OpLoad %8 %2 %2 %4
+				          OpReturn
+				"
+			`);
+			stdout = '';
+
+			Session_tick(ptr)
+
+			// TODO: assert that we've got 1/4 of our slots fulfilled (?)
+
+			// for now, just check that we're still "in" the first op...
+			Session_getCurrentId(ptr, Id.ptr.asRef());
+			expect([...Id]).toEqual([3, 0, 0]);
+			expect(stdout).toMatchInlineSnapshot(`
+				"Switched to invocation with global ID (3,0,0)
+				          OpLabel %1
+				     %2 = OpAccessChain %11 %5 %12
+				->   %3 = OpLoad %8 %2 %2 %4
+				          OpReturn
+				"
+			`);
+			stdout = '';
+
+			Session_tick(ptr)
+			Session_tick(ptr)
+			Session_tick(ptr)
+
+			// and now we're not
+			Session_switch(ptr, ...toCArgs(['switch', '3']));
+			expect(stderr).toMatchInlineSnapshot(`"Already executing this invocation!"`);
+			Session_printContext(ptr);
+			expect(stdout).toMatchInlineSnapshot(`
+				"          OpLabel %1
+				     %2 = OpAccessChain %11 %5 %12
+				     %3 = OpLoad %8 %2 %2 %4
+				->        OpReturn
+				"
+			`);
+			stdout = '', stderr = '';
+		} finally {
+			Session__destroy__(ptr);
+			if (arenaAlloc) instance._free(arenaAlloc);
+		}
+		expect(stderr).toEqual('');
+		expect(stdout).toMatchInlineSnapshot(`
+				""
 		`);
 	})
 })

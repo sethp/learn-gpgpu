@@ -10,7 +10,7 @@ OpMemoryModel Logical OpenCL
 
 OpEntryPoint Kernel %main_fn "main" %gl_GlobalInvocationID
 
-OpExecutionGlobalSizeTALVOS %main_fn 16 1 1
+OpExecutionGlobalSizeTALVOS %main_fn 4 1 1
 
 OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
 OpDecorate %_arr_uint32_t ArrayStride 4
@@ -34,7 +34,7 @@ OpDecorate %_arr_uint32_t ArrayStride 4
 ; global arguments & constants
                     %n = OpConstant %uint32_t 0
 %gl_GlobalInvocationID = OpVariable %_ptr_Input_gbl_id_t Input
-                 %buf0 = OpBufferTALVOS %_arr_PhysicalStorageBuffer_uint32_t PhysicalStorageBuffer 64 "a"
+                 %buf0 = OpBufferTALVOS %_arr_PhysicalStorageBuffer_uint32_t PhysicalStorageBuffer 16 "a"
 
 ; FILL_IDX entry point
 %main_fn = OpFunction %void_t None %void_fn_t

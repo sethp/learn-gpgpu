@@ -28,7 +28,7 @@ var readyPromise = new Promise((resolve, reject) => {
   readyPromiseResolve = resolve;
   readyPromiseReject = reject;
 });
-["_malloc","_free","getExceptionMessage","$incrementExceptionRefcount","$decrementExceptionRefcount","_memory","_assertion","_Session__create__","_Session__destroy__","_Session__params_ref","_Session__module_ref","_Session__device_ref","_Session_run","_Session_dumpBuffers","_Session_start","_Session_printContext","_Session_step","_Session_continue","_Session_print","_Session_switch","_validate_wasm","_test_entry","_test_entry_no_tcf","_run_wasm","_debug_wasm","_Session_fetch_shrubbery","_exception","___indirect_function_table","onRuntimeInitialized"].forEach((prop) => {
+["_malloc","_free","getExceptionMessage","$incrementExceptionRefcount","$decrementExceptionRefcount","_memory","_assertion","_Session__create__","_Session__destroy__","_Session__params_ref","_Session__module_ref","_Session__device_ref","_Session_run","_Session_dumpBuffers","_Session_start","_Session_printContext","_Session_getCurrentId","_Session_step","_Session_tick","_Session_continue","_Session_print","_Session_switch","_validate_wasm","_test_entry","_test_entry_no_tcf","_run_wasm","_debug_wasm","_Session_fetch_shrubbery","_exception","___indirect_function_table","onRuntimeInitialized"].forEach((prop) => {
   if (!Object.getOwnPropertyDescriptor(readyPromise, prop)) {
     Object.defineProperty(readyPromise, prop, {
       get: () => abort('You are getting ' + prop + ' on the Promise object, instead of the instance. Use .then() to get called back with the instance, see the MODULARIZE docs in src/settings.js'),
@@ -4778,7 +4778,9 @@ var _Session_run = Module['_Session_run'] = createExportWrapper('Session_run', 1
 var _Session_dumpBuffers = Module['_Session_dumpBuffers'] = createExportWrapper('Session_dumpBuffers', 1);
 var _Session_start = Module['_Session_start'] = createExportWrapper('Session_start', 2);
 var _Session_printContext = Module['_Session_printContext'] = createExportWrapper('Session_printContext', 1);
+var _Session_getCurrentId = Module['_Session_getCurrentId'] = createExportWrapper('Session_getCurrentId', 2);
 var _Session_step = Module['_Session_step'] = createExportWrapper('Session_step', 3);
+var _Session_tick = Module['_Session_tick'] = createExportWrapper('Session_tick', 1);
 var _Session_continue = Module['_Session_continue'] = createExportWrapper('Session_continue', 2);
 var _Session_print = Module['_Session_print'] = createExportWrapper('Session_print', 3);
 var _Session_switch = Module['_Session_switch'] = createExportWrapper('Session_switch', 3);

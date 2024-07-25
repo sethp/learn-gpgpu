@@ -1,6 +1,6 @@
 import { Ptr } from "./ptr"
 
-export const LITTLE_ENDIAN = true;
+export const LITTLE_ENDIAN = true; // wasm is always little endian
 
 export interface HasAbi {
 	SIZE: number

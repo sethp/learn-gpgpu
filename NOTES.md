@@ -1266,3 +1266,33 @@ The atomicity does confuse matters for SIMT-land, just a bit: the happens-before
 So, how do we model a gap there? The most natural place to throttle is at the "memory access" boundary; we might construct a toy GPU that has a tiny memory bandwidth which only allows it to load, say, 4 bytes at a time or so. Or maybe only allows it to "consider" one memory request at a time?
 
 Let's play with that for now. All operations will complete in one "vis step" unless they touch memory, and then they compelete one-at-a-time (in order, to make it easier, though nondeterministically would be better).
+
+### introducing a "tick"
+
+So what is the space that we're introducing here? It seems like our model wants to occupy a space between RTL models and some sort of virtual machine; while an RTL model would contain within it all of the behaviors we care to charactrerize, it also will have far, far more that we wouldn't. A virtual (abstract) machine, on the other hand, might fail to model the interesting details—for example, our current abstract VM runs every instruction in lock-step across every single core. This is far too _specific_ (without the benefit of RTL's precision), and doesn't offer us any place to stand as we ponder a half-completed operation on a given core. In effect, by being operation-oriented, the "VM model"[^vm-model-naming] assumes infinities wherever required so that all operations are the same "size" and "shape," but we'd like to e.g. simulate the effects of doubling the memory bandwidth as it relates to the Simultaneous/Multiple (independent) parts.
+
+[^vm-model-naming]: VaM (virtual abstract machine)? but aren't we considering just a different kind of abstract machine, now? was it an "operation (step) debugger" model? for now, let's let "VM model" stand for whatever we were before.
+
+Enter, the "functional block model" simulation, and its pursuant atomic increment, the "tick." What is a tick? Well, let's start with what it's not: it's not a whole operation, that'd be too large; nor is it a single cycle, that'd be too small (see above). Let's propose that a "tick" is "just as small as it needs to be, but not smaller"[^vs-rtl-model-start].
+
+[^vs-rtl-model-start]: since we're coming from "above" with our previously-operation-oriented implementation; an approach from "below" starting with an RTL model and defining the equivalent converse ("just as large as it needs to be, but not larger") would also be an interesting approach as well.
+
+We want to tease apart these fundamental primitives:
+
+1. A "local" operation (i.e. OpAccessChain) vs.
+2. A "remote" operation (i.e. OpLoad, OpStore)
+
+Which means we have this working definition of a tick:
+
+* Long enough to complete an OpAccessChain operation, but
+* Short enough that "remote" operations complete at some proportional rate, i.e. 1 op/tick, 2 ops/tick, etc.
+
+### Aside: why do we even have a textarea?
+
+When writing the note on models in `wasm/talvos/tools/talvos-cmd/wasm.cpp`, I wrote:
+
+> But, we don't have a good way to represent that model & its correspondence to the source-level view, so we leave these in place per "something beats nothing"
+
+Which lead me to exclaim: "Oh, and that's why the source-level view is important; it's not an editor, it's a _symbol_"
+
+In other words, since we expect the daily activity of programming GPUs to be staring at the source-level symbolism, constructing the three-way mapping between data, execution, and source is essential, not accidental.
