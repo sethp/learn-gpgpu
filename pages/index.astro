@@ -90,8 +90,7 @@ const vis = {
 
 			const rootEl = document.getElementById('talvos')!;
 
-			const stdioEl =
-				rootEl.querySelector<HTMLOutputElement>('output.stdio') || ({} as { value: HTMLOutputElement['value'] });
+			const stdioEl = rootEl.querySelector<HTMLOutputElement>('output.stdio')!;
 			const errorEl =
 				rootEl.querySelector<HTMLOutputElement>('output.error') || ({} as { value: HTMLOutputElement['value'] });
 
@@ -547,6 +546,7 @@ const vis = {
 			function captureOutput(f: Function, start?: PerformanceMeasure) {
 				stdioEl.value = '';
 				errorEl.value = '';
+				stdioEl.hidden = false;
 				rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `...`;
 				rootEl.querySelectorAll<HTMLButtonElement>('button.exec,textarea').forEach((el) => (el.disabled = true));
 				start = start ?? window.performance.mark('talvos');
@@ -635,6 +635,7 @@ const vis = {
 
 			rootEl.querySelector<HTMLButtonElement>('button.debug')!.onclick = async function () {
 				stdioEl.value = '';
+				stdioEl.hidden = true;
 				errorEl.value = '';
 				rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `...`;
 				rootEl.querySelectorAll<HTMLButtonElement>('button.exec,textarea').forEach((el) => (el.disabled = true));
@@ -813,7 +814,7 @@ const vis = {
 							wrap="off">{tcfChunks[0]}</textarea
 						>
 					</section> -->
-					<output class="stdio" style="display: block; background-color: lightgray; white-space: pre;"></output>
+					<output class="stdio"></output>
 					<hr />
 					<section class="buffers">
 						<!-- <figure>
@@ -859,8 +860,8 @@ const vis = {
 					<button class="tick">tick</button>
 					<!-- cf. PipelineExecutor::help -->
 					<button class="step">step</button>
-					<button class="switch">switch</button>
-					<button class="print">print</button>
+					<button class="switch" hidden>switch</button>
+					<button class="print" hidden>print</button>
 					<button class="continue">continue</button>
 					<button class="stop">stop</button>
 					<!-- missing: [break, breakpoint, help, quit] -->
@@ -1094,6 +1095,16 @@ const vis = {
 									}
 								},
 							},
+							{
+								// OpReturn
+								label: 'ret',
+								kind: 'alu',
+								values: function* () {
+									while (true) {
+										yield '✔';
+									}
+								},
+							},
 						];
 						var state: { cur: number; last: 'completed'[]; gen?: Generator<string> };
 						function resetState() {
@@ -1199,7 +1210,11 @@ const vis = {
 							}
 						}
 
+						const textAreaEl = document.querySelector<HTMLTextAreaElement>('#talvos textarea')!;
+						let initialContents: string;
+
 						function drawModule() {
+							const lanes = parseInt(svgEl.dataset.lanes || '');
 							svgEl.replaceChildren(
 								...svgEl.querySelectorAll('style,defs'),
 								((el: Node & SVGElement) => {
@@ -1227,8 +1242,39 @@ const vis = {
 									opEl.setAttribute('cy', '55');
 									opEl.setAttribute('r', '12');
 
-									const opLabelEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'text'));
+									if (idx <= state.cur) {
+										const progressEl = opSvg.appendChild(
+											document.createElementNS('http://www.w3.org/2000/svg', 'text')
+										);
 
+										progressEl.setAttribute('x', '30');
+										progressEl.setAttribute('y', '1ch');
+										progressEl.style.fontSize = 'medium';
+										progressEl.style.fontFamily = 'monospace';
+										progressEl.setAttribute('dominant-baseline', 'middle');
+										progressEl.setAttribute('text-anchor', 'middle');
+										progressEl.setAttribute('dy', '0 0.4em 0.4em 0.4em 0.4em');
+
+										if (idx < state.cur) progressEl.append('••••');
+										else progressEl.append('•'.repeat(state.last.length), '◦'.repeat(lanes - state.last.length));
+
+										progressEl.setAttribute(
+											'dx',
+											(() => {
+												if (idx <= state.cur && op.kind == 'alu') return ['0', ...Array(lanes - 1).fill('-1ch')];
+												else if (idx < state.cur && op.kind == 'mem') return ['0', ...Array(lanes - 1).fill('-0.5ch')];
+												else if (op.kind == 'mem')
+													return [
+														'0',
+														...Array(state.last.length).fill('-0.5ch'),
+														...Array(lanes - state.last.length - 1).fill('-1ch'),
+													];
+												else throw new Error(`unknown op kind: ${op.kind}`);
+											})().join(' ')
+										);
+									}
+
+									const opLabelEl = opSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'text'));
 									// x="30" y="55" dominant-baseline="middle" text-anchor="middle"
 									opLabelEl.setAttribute('x', '30');
 									opLabelEl.setAttribute('y', '55');
@@ -1241,7 +1287,7 @@ const vis = {
 
 									const gen = op.values();
 									// <rect width="20" height="20" x="20" y="80 + ..." class="result dispatched completed"></rect>
-									for (var i = 0; i < parseInt(svgEl.dataset.lanes || ''); i++) {
+									for (var i = 0; i < lanes; i++) {
 										const resEl = gEl.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
 										resEl.setAttribute('x', '20');
 										resEl.setAttribute('y', `${80 + 30 * i}`);
@@ -1268,23 +1314,82 @@ const vis = {
 									return opSvg;
 								})
 							);
+
+							const label = ops[state.cur]?.label;
+							const lineOffset = 42; // the answer to life, the universe, and
+							// "on what line the program's first op appears"
+							textAreaEl.textContent = initialContents!
+								.split('\n')
+								.flatMap((line, lineno) => {
+									const idx = lineno - lineOffset + 1;
+									if (idx >= 0 && idx < state.cur) {
+										if (ops[idx]!.kind == 'alu') return [' ', '••••', line.slice(5)].join('');
+										else if (ops[idx]!.kind == 'mem')
+											return [' •', '  •', '   •', [' ', '   •', line.slice(5)].join('')];
+									} else if (state.cur >= ops.length) {
+										return [line];
+									} else if (
+										(label == 'ret' && line.includes('OpReturn')) ||
+										(label == 'st' && line.includes('OpStore')) ||
+										line.includes(`${label} =`)
+									) {
+										if (ops[state.cur]!.kind == 'alu') {
+											return ['>', state.last.length == 0 ? '◦◦◦◦' : '••••', line.slice(5)].join('');
+										} else if (ops[state.cur]!.kind == 'mem') {
+											return [
+												...state.last.map((_, n) => [' '.repeat(n + 1), '•'].join('')),
+												['>', ' '.repeat(state.last.length), '◦'.repeat(4 - state.last.length), line.slice(5)].join(''),
+											];
+										} else {
+											console.error('unknown kind for op', ops[state.cur]);
+										}
+									}
+
+									return [line];
+								})
+								.join('\n');
+
+							textAreaEl.scrollTo({
+								top: 684,
+								left: 0,
+								behavior: 'smooth',
+							});
+
+							// console.log(textAreaEl.firstChild);
+
+							// textAreaEl.setSelectionRange(7, 12, 'forward');
+							// textAreaEl.selectionStart = 7;
+							// textAreaEl.selectionEnd = 12;
+							// textAreaEl.selectionStart = highlight[0];
+							// textAreaEl.selectionEnd = highlight[1];
 						}
 
 						document.querySelector('#talvos .controls button.vis.step0')!.addEventListener('click', tick);
 						document.querySelector('#talvos .controls button.vis.step1')!.addEventListener('click', step);
 
 						window.addEventListener('event-binding-lol-TODO-start', function () {
+							initialContents = textAreaEl.textContent!;
 							resetState();
 							drawModule();
+
+							textAreaEl.scrollTo({
+								top: 584,
+								left: 0,
+								behavior: 'smooth',
+							});
 						});
 						window.addEventListener('event-binding-lol-TODO-tick', tick);
 						window.addEventListener('event-binding-lol-TODO-step', step);
-						window.addEventListener('event-binding-lol-TODO-finish', resetState); // reset, but don't redraw
+						window.addEventListener('event-binding-lol-TODO-finish', function () {
+							resetState(); // reset, but don't redraw
+							textAreaEl.textContent = initialContents;
+						});
 					})();
 				</script>
+				<!-- TODO: viewBox based on size of computation -->
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 240 240"
+					viewBox="0 0 300 240"
 					height="240px"
 					class="vis1"
 					data-cores="TODO"
@@ -1345,7 +1450,7 @@ const vis = {
 								</symbol>
 							</defs>
 
-							<!-- <use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use> -->
+							<use href="#handle" style="fill-opacity: 0; stroke:black;" x="12"></use>
 							<rect x="0" y="30" height="200" width="60"></rect>
 
 							<!-- 40x30 at (10 40); centerline: 30 -->

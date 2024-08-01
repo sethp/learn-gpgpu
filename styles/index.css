@@ -21,9 +21,24 @@ textarea {
 	height : 860px;
 	width : 500px;
 }
+textarea:disabled {
+	overflow-y: hidden;
+	resize: none;
+}
 .vis-wip textarea {
-	height: 220px;
+	height: 280px;
 	width : 500px;
+}
+.vis-wip button.run {
+	display: none;
+}
+output.stdio[hidden] {
+	display: none;
+}
+output.stdio {
+	display: block;
+	background-color: lightgray;
+	white-space: pre;
 }
 .controls {
   text-align : center;

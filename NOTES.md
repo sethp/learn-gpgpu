@@ -1296,3 +1296,84 @@ When writing the note on models in `wasm/talvos/tools/talvos-cmd/wasm.cpp`, I wr
 Which lead me to exclaim: "Oh, and that's why the source-level view is important; it's not an editor, it's a _symbol_"
 
 In other words, since we expect the daily activity of programming GPUs to be staring at the source-level symbolism, constructing the three-way mapping between data, execution, and source is essential, not accidental.
+
+## mapping the (single) symbols to the (multiple) execution
+
+Given a "plain old" computer program, the statements form a linear string of operations:
+
+```
+stmt1;
+stmt2;
+stmt3;
+```
+
+maps, symbolically, to three sequential steps that execute exactly once by the end of the computation.
+
+However, in GPU land, that source-statement to execution model correspondence is broken from the start; instead of being 1:1 with (symbolic) operation, the statements are executed N:1, that is, each "line" has N effects. So too in a CPU, but the very-relaxed-by-default memory model significantly raises the likelihood of catching something part-way through. Additionally, we have the above intentional goal to exhibit the partial effects as a way to motiviate mechanical sympathy for the memory controller & its bandwidth/coalescing effects in the time domain.
+
+So, where in a conventional step-debugger we'd have a single indicator for "the thing I'm going to do next" (exclusive of the previous statements), we have at least two kinds of "next" for a given core:
+
+1. The next increment of the "current" operation (tick)
+  - Sometimes, this will be "the rest of it"; sometimes, if e.g.
+    the memory controller is busy, it will be "none"
+  - These are _implicit_ from the perspective of a single source line;
+    both in terms of static cardinality (i.e. the kernel's work dimension) and dynamic completion rate
+2. The next operation, i.e. the next source line (step), which we consider to be conveniently exclusive of and happens-after all the prior statements' execution effects[^fn-pipelines-tho].
+
+Of the "big four" (SIMT; Work Mapping; Memory; Parallelism) we're still only focused on the first one. In other words, we're intentionally excluding the multiplicity that arises from multiple cores having an even larger set of possible states, at least until "Parallelism." (In fact, the distinction between simultenaity within-a-core and parallel effects across cores is roughly what we mean by splitting "SIMT" from "Parallelism")
+
+[^fn-pipelines-tho]: NB: from the perspective of the hardware, aggressive pipelining and "hyper-hyper-threading" will mean that real GPUs will interleave statements from unrelated programs in partially-architecturally-visible ways, further violating "symbolic sequentiality." For now, though, we treat each computation as its own single-stepped, sequentially-consistent universe (as above). That simplification will matter if & when we get to barriers, synchronization, reductions, etc., but hopefully we can hold off until then.
+
+So, our focus thus narrowed[^fn-true-for-a-spherical-gpu-in-a-vacuum], we have up to $M*N*1$ possible states for a program consisting of `M` statements with total work cardinality of `N` (i.e. the product of all the dimensions).
+
+[^fn-true-for-a-spherical-gpu-in-a-vacuum]: Given an idle GPU that accepts only a single kernel at a time which fits entirely within a single core, we're spot on!
+
+
+One possibility is to make the ambiguity explicit; instead of a single highlight:
+
+```
+       %2 = OpAccessChain %...
+       %3 = OpLoad %...
+->     %4 = OpAccessChain %...
+            OpStore %...
+            OpReturn
+```
+
+we instead use different indicators:
+
+```
+       %2 = OpAccessChain ...
+tick>  %3 = OpLoad ...
+step>  %4 = OpAccessChain ...
+            OpStore ...
+            OpReturn
+```
+
+This does two things for us:
+
+1. Gives some suggestion of what "tick" means (at least relative to "step"), and what might happen if either button is pressed
+2. Hints that some operations (like OpLoad) will take more "ticks" if someone carefully observes
+
+But, it invokes novel terminology ("tick"), and it doesn't leave a history behind. On a (very) bandwidth-constrained system `OpLoad` will take more "tick" presses, which waggles its eyebrows suggestively at the difference between that and `OpAccessChain`, but there's no concrete record of that, so it's also very "blink and you'll miss it."
+
+What if instead, we left a record in the (non-ragged left-hand) gutter:
+
+```
+ ....  %2 = OpAccessChain %...
+    :
+    :  %3 = OpLoad %...
+ ....  %4 = OpAccessChain %...
+    :
+    :       OpStore %...
+ ....       OpReturn
+```
+
+(Or maybe ◦ & • ?)
+
+which can (maybe) be read as "four OpAccessChain results were computed in parallel, then four sequential OpLoads happened, then four parallel OpAccessChains again...". Then, we "highlight" the line and its (possibly growing) trail of partial results; "tick" will act on dots, "step" will act on lines, and we've left a record of both the program's cardinality _and_ its simulteneity.
+
+<!--
+TODO
+(for later: there's probably a better way to get the visual metaphor to line up with the "pacman eats the future and leaves the past in his wake" vis down below)
+(also for later: what about bigger problem sizes tho)
+ -->
