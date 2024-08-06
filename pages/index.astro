@@ -100,6 +100,7 @@ const vis = {
 				},
 				printErr: function (text: any) {
 					stdioEl.value += text + '\n';
+					console.error(text);
 				},
 			} as any; /* TODO: emscripten types */
 
@@ -542,6 +543,15 @@ const vis = {
 				self['__destroy__']();
 			}
 
+			function withTiming(f: Function, start?: PerformanceMeasure) {
+				start = start ?? window.performance.mark('talvos');
+
+				return (async () => f())().finally(() => {
+					const call = window.performance.measure(start.name, start.name);
+					rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `done in ${call.duration}ms`;
+				});
+			}
+
 			// TODO refactor into `withTiming` / `withExec` ?
 			function captureOutput(f: Function, start?: PerformanceMeasure) {
 				stdioEl.value = '';
@@ -642,67 +652,40 @@ const vis = {
 				const text = (rootEl.querySelector('.module') as { value: string } | null)!.value;
 
 				const start = window.performance.mark('debug', { detail: { text } });
-				const session = new (await Session)(text);
-				// session.params.EntryName = 'vecadd';
-				session.params.EntryName = entryEl.selectedOptions.item(0)?.value ?? 'main';
+				withTiming(async () => {
+					const session = new (await Session)(text);
+					// session.params.EntryName = 'vecadd';
+					session.params.EntryName = entryEl.selectedOptions.item(0)?.value ?? 'main';
 
-				const debugCtrl = rootEl.querySelector<HTMLElement>('.debugger')!;
+					const debugCtrl = rootEl.querySelector<HTMLElement>('.debugger')!;
 
-				function finish() {
-					debugCtrl.hidden = true;
-					// remove references to 1) allow the session to be GC'd, and 2) safety of the dangling pointer
-					debugCtrl.querySelectorAll<HTMLButtonElement>('button').forEach((el) => (el.onclick = null));
-					rootEl
-						.querySelectorAll<HTMLButtonElement>('button.exec,textarea')
-						.forEach((el) => el.removeAttribute('disabled'));
-					window.dispatchEvent(ev_finish);
+					function finish() {
+						withTiming(() => {
+							debugCtrl.hidden = true;
+							// remove references to 1) allow the session to be GC'd, and 2) safety of the dangling pointer
+							debugCtrl.querySelectorAll<HTMLButtonElement>('button').forEach((el) => (el.onclick = null));
+							rootEl
+								.querySelectorAll<HTMLButtonElement>('button.exec,textarea')
+								.forEach((el) => el.removeAttribute('disabled'));
+							window.dispatchEvent(ev_finish);
 
-					destroy(session);
+							destroy(session);
+						}, window.performance.mark('finish'));
 
-					const call = window.performance.measure(start.name, start.name);
-					rootEl.querySelector<HTMLOutputElement>('output.timing')!.value = `done in ${call.duration}ms`;
-				}
-
-				try {
-					session.start();
-					window.dispatchEvent(ev_start);
-
-					stdioEl.value = `@ {${[...session.lastId]}} (logical)\n`;
-					session.printContext();
-				} catch (e) {
-					finish();
-					throw e;
-				}
-
-				const FINISHED = 1; // TODO sync with talvos::PipelineExecutor::StepResult
-
-				debugCtrl.querySelector<HTMLButtonElement>('button.tick')!.onclick = async function () {
-					stdioEl.value = '';
-					errorEl.value = '';
-					try {
-						const last = await session.tick();
-						window.dispatchEvent(ev_tick);
-						if (last == FINISHED) {
-							finish();
-						}
-
-						// TODO remove (confusing)
-						stdioEl.value = `@ {${[...session.lastId]}} (logical)\n`;
-						session.printContext();
-					} catch (e) {
-						finish();
-						throw e;
+						const call = window.performance.measure(start.name, start.name);
+						// we need to be scheduled after the (async) bits in `withTiming`
+						// this is good and will in no way be broken by anything I do later
+						setTimeout(
+							() =>
+								(rootEl.querySelector<HTMLOutputElement>('output.timing')!.value +=
+									` (session lifetime: ${call.duration}ms)`),
+							0
+						);
 					}
-				};
-				debugCtrl.querySelector<HTMLButtonElement>('button.step')!.onclick = async function () {
-					stdioEl.value = '';
-					errorEl.value = '';
+
 					try {
-						const last = await session.step();
-						window.dispatchEvent(ev_step);
-						if (last == FINISHED) {
-							finish();
-						}
+						session.start();
+						window.dispatchEvent(ev_start);
 
 						stdioEl.value = `@ {${[...session.lastId]}} (logical)\n`;
 						session.printContext();
@@ -710,37 +693,83 @@ const vis = {
 						finish();
 						throw e;
 					}
-				};
-				debugCtrl.querySelector<HTMLButtonElement>('button.switch')!.onclick = function () {
-					const input = prompt('Usage: switch: X [Y [Z]]', 'X [Y [Z]]'); // %15 is `void` in vecadd
-					if (input == null) {
-						return;
-					}
-					const args = input.split(/\s+/);
-					session.switch(args);
-				};
-				debugCtrl.querySelector<HTMLButtonElement>('button.print')!.onclick = function () {
-					const input = prompt('Usage: print: %<id>', '%15'); // %15 is `void` in vecadd
-					if (input == null) {
-						return;
-					}
-					const args = input.split(/\s+/);
-					session.print(args);
-				};
 
-				debugCtrl.querySelector<HTMLButtonElement>('button.stop')!.onclick = finish;
-				debugCtrl.querySelector<HTMLButtonElement>('button.continue')!.onclick = function () {
-					stdioEl.value = '';
-					errorEl.value = '';
-					try {
-						session.continue();
-					} finally {
-						// TODO breakpoints
-						finish();
-					}
-				};
+					const FINISHED = 1; // TODO sync with talvos::PipelineExecutor::StepResult
 
-				debugCtrl.hidden = false;
+					debugCtrl.querySelector<HTMLButtonElement>('button.tick')!.onclick = async function () {
+						stdioEl.value = '';
+						errorEl.value = '';
+						const start = window.performance.mark('tick', { detail: {} });
+						withTiming(async () => {
+							try {
+								const last = await session.tick();
+								window.dispatchEvent(ev_tick);
+								if (last == FINISHED) {
+									finish();
+								}
+
+								// TODO remove (confusing)
+								stdioEl.value = `@ {${[...session.lastId]}} (logical)\n`;
+								session.printContext();
+							} catch (e) {
+								finish();
+								throw e;
+							}
+						}, start);
+					};
+					debugCtrl.querySelector<HTMLButtonElement>('button.step')!.onclick = async function () {
+						stdioEl.value = '';
+						errorEl.value = '';
+						const start = window.performance.mark('step', { detail: {} });
+						withTiming(async () => {
+							try {
+								const last = await session.step();
+								window.dispatchEvent(ev_step);
+								if (last == FINISHED) {
+									finish();
+								}
+
+								stdioEl.value = `@ {${[...session.lastId]}} (logical)\n`;
+								session.printContext();
+							} catch (e) {
+								finish();
+								throw e;
+							}
+						}, start);
+					};
+					debugCtrl.querySelector<HTMLButtonElement>('button.switch')!.onclick = function () {
+						const input = prompt('Usage: switch: X [Y [Z]]', 'X [Y [Z]]'); // %15 is `void` in vecadd
+						if (input == null) {
+							return;
+						}
+						const args = input.split(/\s+/);
+						session.switch(args);
+					};
+					debugCtrl.querySelector<HTMLButtonElement>('button.print')!.onclick = function () {
+						const input = prompt('Usage: print: %<id>', '%15'); // %15 is `void` in vecadd
+						if (input == null) {
+							return;
+						}
+						const args = input.split(/\s+/);
+						session.print(args);
+					};
+
+					debugCtrl.querySelector<HTMLButtonElement>('button.stop')!.onclick = finish;
+					debugCtrl.querySelector<HTMLButtonElement>('button.continue')!.onclick = function () {
+						stdioEl.value = '';
+						errorEl.value = '';
+						withTiming(() => {
+							try {
+								session.continue();
+							} finally {
+								// TODO breakpoints
+								finish();
+							}
+						});
+					};
+
+					debugCtrl.hidden = false;
+				}, start);
 			};
 
 			const entryEl = rootEl.querySelector<HTMLSelectElement>('select[name="entry"]')!;
