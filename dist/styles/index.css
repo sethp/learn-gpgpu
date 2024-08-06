@@ -118,3 +118,23 @@ nav li:not(:last-child) a::after  {
 shadow-root:not(:defined) {
 	display: none;
 }
+table {
+	table-layout: fixed;
+	width: 100%;
+	border-collapse: collapse;
+	border: 1px solid;
+}
+thead th:nth-child(1) {
+	width: 20%;
+}
+thead th:nth-child(1) {
+	width: 20%;
+}
+thead th,
+tbody td {
+	border: 1px solid;
+}
+span.footnote {
+	vertical-align: super;
+	font-size: smaller;
+}
