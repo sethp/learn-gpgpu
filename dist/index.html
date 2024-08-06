@@ -1,4 +1,4 @@
-<!DOCTYPE html><html> <head><meta charset="utf-8"><title>gpgpu playground</title><link rel="stylesheet" type="text/css" media="all" href="/learn-gpgpu/styles/index.css"><script type="module" src="/learn-gpgpu/_astro/hoisted.CX9CJQ01.js"></script>
+<!DOCTYPE html><html> <head><meta charset="utf-8"><title>gpgpu playground</title><link rel="stylesheet" type="text/css" media="all" href="/learn-gpgpu/styles/index.css"><script type="module" src="/learn-gpgpu/_astro/hoisted.DMRu6bAe.js"></script>
 <script type="module" src="/learn-gpgpu/_astro/page.LS5KDvwX.js"></script></head> <body> <nav> <ul> <li><a href="/learn-gpgpu/docs">docs/</a></li> </ul> </nav> <div id="talvos" class="vis-wip"> <div> <main> <textarea class="module" autocorrect="off" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="SPIR-V module assembly (spv_text format)" wrap="off">; SPIR-V
 ; Version: 1.5
 OpCapability Kernel
@@ -40,10 +40,15 @@ OpDecorate %_arr_uint32_t ArrayStride 4
 ; FILL_IDX entry point
 %main_fn = OpFunction %void_t None %void_fn_t
       %1 = OpLabel
+
+        ; let i = globalWorkId[0]
       %2 = OpAccessChain %_ptr_Input_uint32_t %gl_GlobalInvocationID %n
       %3 = OpLoad %uint32_t %2 Aligned 4
+
+        ; a[i] = i
       %4 = OpAccessChain %_ptr_PhysicalStorageBuffer_uint32_t %buf0 %3
            OpStore %4 %3 Aligned 4
+
            OpReturn
            OpFunctionEnd
 </textarea> </main> <aside> <section hidden> <label>ENTRY
