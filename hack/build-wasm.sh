@@ -46,6 +46,14 @@ done
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# TODO[seth]: check this on a fresh clone (/ remove/ (de-init?) the submodule)
+git submodule status | ( grep -vq '^-' && cat >/dev/null ) || {
+										# ^ else git submodule status dies w/ SIGPIPE
+	echo >&2 "some submodules not initialized"
+	echo >&2 "please run \`git submodule update --init\`"
+	exit 1
+}
+
 [[ -v WATCH_MODE ]] || {
 	./hack/build/talvos-wasm.sh "$PWD/wasm"
 
