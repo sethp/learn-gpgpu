@@ -1346,12 +1346,26 @@ const vis = {
 							);
 
 							const label = ops[state.cur]?.label;
-							const lineOffset = 42; // the answer to life, the universe, and
-							// "on what line the program's first op appears"
+
+							// It'd be nice if the spirv-tools assembler kept track of which source line(s) it got an
+							// instruction from, but it doesn't.
+							// TODO stop doing this on every "tick"
+							const linenoToIndex: { [_: number]: number } = {};
+							initialContents!.split('\n').forEach(
+								(() => {
+									let cur = 0; // current index
+									return (line, lineno) => {
+										if (line.includes(`%${cur + 2} =`)) linenoToIndex[lineno] = cur++;
+										else if (line.includes('OpStore')) linenoToIndex[lineno] = cur++;
+										else if (line.includes('OpReturn')) linenoToIndex[lineno] = cur++;
+										else linenoToIndex[lineno] = -1;
+									};
+								})()
+							);
 							textAreaEl.textContent = initialContents!
 								.split('\n')
 								.flatMap((line, lineno) => {
-									const idx = lineno - lineOffset + 1;
+									const idx = linenoToIndex[lineno]!;
 									if (idx >= 0 && idx < state.cur) {
 										if (ops[idx]!.kind == 'alu') return [' ', '••••', line.slice(5)].join('');
 										else if (ops[idx]!.kind == 'mem')
@@ -1379,8 +1393,11 @@ const vis = {
 								})
 								.join('\n');
 
+							// scroll to bottom
+							// at some point we might have to go all the way to:
+							// https://css-tricks.com/the-cleanest-trick-for-autogrowing-textareas/
 							textAreaEl.scrollTo({
-								top: 684,
+								top: textAreaEl.scrollHeight,
 								left: 0,
 								behavior: 'smooth',
 							});
@@ -1402,8 +1419,9 @@ const vis = {
 							resetState();
 							drawModule();
 
+							// scroll to bottom
 							textAreaEl.scrollTo({
-								top: 584,
+								top: textAreaEl.scrollHeight,
 								left: 0,
 								behavior: 'smooth',
 							});

@@ -39,9 +39,14 @@ OpDecorate %_arr_uint32_t ArrayStride 4
 ; FILL_IDX entry point
 %main_fn = OpFunction %void_t None %void_fn_t
       %1 = OpLabel
+
+        ; let i = globalWorkId[0]
       %2 = OpAccessChain %_ptr_Input_uint32_t %gl_GlobalInvocationID %n
       %3 = OpLoad %uint32_t %2 Aligned 4
+
+        ; a[i] = i
       %4 = OpAccessChain %_ptr_PhysicalStorageBuffer_uint32_t %buf0 %3
            OpStore %4 %3 Aligned 4
+
            OpReturn
            OpFunctionEnd
