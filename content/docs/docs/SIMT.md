@@ -3,13 +3,13 @@ title: SIMT
 description: 'Experiments in explaining SIMT'
 ---
 
-Some exposition on our journey through the world of modeling Simultaenous Instruction, Multiple Thread computations.
+Some exposition on our journey through the world of modeling Simultaneous Instruction, Multiple Thread computations.
 
 Core Questions:
 
 1. When does one operation _dispatch_ relative to the previous one?
-2. When does a "local" operation _complete_ relative to its dispatch? What about a "memory" operation?
-
+2. When does an operation _complete_ relative to its dispatch?
+3. How do we define our computation such that it _scales_, both with the size of our data and our hardware?
 
 # View A: "Control Blocks"
 
@@ -68,9 +68,29 @@ Roughly, this model displayed cores going down the page, lanes going right. Hove
 This let us talk about three things:
 
 1. With appropriate coaching, stepping w/ some lanes deselected (as shown above) permits an experiment highlighting some of the dependent/independent relationship between Instructions and Threads.
-  - By disabling some lanes and stepping the OpStore, the disabled part of the computation would be skipped. This demonstrated that each _operation_ was "on die" at most once, and the "multiple"-ness comes from exactly as many times as lanes of the core were active at that time.
-  - Stepping with a whole core "disabled," on the other hand, allowed that same portion of the computation to resume when the core was re-enabled; demonstrating one of the kinds of independence enjoyed by cross-core operations not shared across lanes.
+    - By disabling some lanes and stepping the OpStore, the disabled part of the computation would be skipped. This demonstrated that each _operation_ was "on die" at most once, and the "multiple"-ness comes from exactly as many times as lanes of the core were active at that time.
+    - Stepping with a whole core "disabled," on the other hand, allowed that same portion of the computation to resume when the core was re-enabled; demonstrating one of the kinds of independence enjoyed by cross-core operations not shared across lanes.
 1. Work mapping, somewhat: by linking the hardware and logical coordinates, it was possible to "see" which parts of the program were executed by which hardware elements.
 1. The "scalability" of SIMT models; since the program specifies parallelism in exactly one place ("OpExecutionGlobalSizeTALVOS"), we can "light up" more lanes and cores by changing just that one number.
-  - Adding a control to expose the number of cores and lanes per core would have augmented the view with the capability to "reshape" the hardware to better show both the scalability and its interplay with the hardware scheduler.
+    - Adding a control to expose the number of cores and lanes per core would have augmented the view with the capability to "reshape" the hardware to better show both the scalability and its interplay with the hardware scheduler.
 
+
+
+# Notes
+
+1. The split between "SIMT" and "Parallelism" is roughly "one core" vs "many cores"; it's not totally clear yet where "many programs" fit into the split, though.
+1. Unfortunately, both "instruction" and "thread" are words that are so overloaded we prefer to avoid them. However, substitutes aren't in wide use, especially when it comes to describing GP-GPU computing, so we're sticking with "SIMT" for now.
+    - The most useful possible alternative might be Single Program Multiple Data (SPMD, via Hwu et al. 2022), but that speaks more to the whole complex of cores. More to the point, it doesn't elucidate single-core execution.
+    - While some late-model GPUs offer thread-level instruction granularity, that's a recent enough development that it's not yet planned here. Addressing it would require understanding its impacts on divergence and occupancy, which are both planned but not yet implemented in the model.
+1. Whether or not introducing a model of pipelining is useful is similarly unclear. As few guarantees as GPUs provide, they do still have enough pipeline registers to conspire to make each "lane-slice" of work appear sequential, though, so from a debugging model standpoint we can treat them as such.
+    - Doing so certainly more accurately characterizes the behavior of a single core—and very nicely motivates the masking-vs-branching dichotomy, especially as the pipeline length grows.
+    - But, that also comes at a high cost for both the learner and the implementation. We'd need to break down all the SPIR-V opcodes (that we support, anyway) in a way that "makes sense" for whatever pipeline we pick.
+1. In order to expose the difference between dispatch and completion, we need some sort of structural hazard that rate limits computtation. The memory controller is a natural first target for such a hazard, since moving bits to the compute units is very likely to be the limiting factor on any given GPU program (limited by arithmetic-clock-speed being the lucky few). So, we've largely grouped operations into "memory" and "not-memory," ignoring such things as floating-point or integer-addition pipelines (at least, for now).
+    - Implementing a more accurate single-core pipeline model would unlock the capability to characterize different operations in terms of "µops"
+
+
+# References
+
+References:
+
+- Hwu, Wen-Mei; Kirk, David. _Programming Massively Parallel Processors_, 4th ed, 2022. ISBN13: [9780323912310](https://openlibrary.org/books/OL36766483M/Programming_Massively_Parallel_Processors)
