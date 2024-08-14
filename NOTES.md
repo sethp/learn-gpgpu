@@ -1249,7 +1249,7 @@ Ok, so prospective model then is:
 
 We might need to relax the atomic constraint in the future, but this model answers our current question of "when does the debugger pause"—_on_ the dispatch edge.
 
-We can also say "the operation is dispatched once per lane simultaenously, and completed once per lane independently."
+We can also say "the operation is dispatched once per lane simultaneously, and completed once per lane independently."
 
 Seems OK: the words are a little long, but they're possibly less confusing than trying to pin down the more wriggly "issue" and "retire".
 
@@ -1370,7 +1370,7 @@ What if instead, we left a record in the (non-ragged left-hand) gutter:
 
 (Or maybe ◦ & • ?)
 
-which can (maybe) be read as "four OpAccessChain results were computed in parallel, then four sequential OpLoads happened, then four parallel OpAccessChains again...". Then, we "highlight" the line and its (possibly growing) trail of partial results; "tick" will act on dots, "step" will act on lines, and we've left a record of both the program's cardinality _and_ its simulteneity.
+which can (maybe) be read as "four OpAccessChain results were computed in parallel, then four sequential OpLoads happened, then four parallel OpAccessChains again...". Then, we "highlight" the line and its (possibly growing) trail of partial results; "tick" will act on dots, "step" will act on lines, and we've left a record of both the program's cardinality _and_ its simultaneity.
 
 <!--
 TODO
