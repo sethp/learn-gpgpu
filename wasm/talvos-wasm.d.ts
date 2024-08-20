@@ -52,11 +52,13 @@ interface WasmModule {
   _Session__params_ref(_0: number): number;
   _Session__module_ref(_0: number): number;
   _Session__device_ref(_0: number): number;
+  _Session__cores_ref(_0: number): number;
   _Session_run(_0: number): void;
   _Session_dumpBuffers(_0: number): void;
   _Session_start(_0: number, _1: number): void;
   _Session_printContext(_0: number): void;
   _Session_getCurrentId(_0: number, _1: number): void;
+  _Session_getCurrentInsn(_0: number): number;
   _Session_step(_0: number, _1: number, _2: number): number;
   _Session_tick(_0: number): number;
   _Session_continue(_0: number, _1: number): void;

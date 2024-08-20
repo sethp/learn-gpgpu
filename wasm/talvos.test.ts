@@ -172,7 +172,7 @@ describe('talvos', () => {
 				expect(e, `mismatch starting at index ${i}: [${rest.slice(i)}]`).toBe(States.NotLaunched))
 
 			Session_printContext(ptr);
-			// NB: this is just the invocation @ { 0, 0, 0}
+			// NB: this is just the invocation @ { 3, 0, 0}
 			Session_getCurrentId(ptr, Id.ptr.asRef());
 			expect([...Id]).toEqual([3, 0, 0]);
 			expect(stdout).toMatchInlineSnapshot(`
@@ -190,13 +190,13 @@ describe('talvos', () => {
 
 			// for now, just check that we're still "in" the first op...
 			Session_getCurrentId(ptr, Id.ptr.asRef());
-			expect([...Id]).toEqual([3, 0, 0]);
+			Session_printContext(ptr);
+			expect([...Id]).toEqual([0, 0, 0]);
 			expect(stdout).toMatchInlineSnapshot(`
-				"Switched to invocation with global ID (3,0,0)
-				          OpLabel %1
+				"          OpLabel %1
 				     %2 = OpAccessChain %11 %5 %12
-				->   %3 = OpLoad %8 %2 %2 %4
-				          OpReturn
+				     %3 = OpLoad %8 %2 %2 %4
+				->        OpReturn
 				"
 			`);
 			stdout = '';

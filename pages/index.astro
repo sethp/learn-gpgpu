@@ -58,7 +58,15 @@ const vis = {
 			import { Ptr } from '../lib/binding/ptr';
 			import { BitSet } from '../lib/bitset';
 			import { States, ExecutionUniverse } from '../lib/executionUniverse';
-			import { Talvos$$Device, Talvos$$Dim3, Talvos$$Module, Talvos$$Params } from '../lib/talvos';
+			import { Talvos$$Core } from '../lib/talvos';
+			import {
+				Talvos$$Cores,
+				Talvos$$Device,
+				Talvos$$Dim3,
+				Talvos$$Instruction,
+				Talvos$$Module,
+				Talvos$$Params,
+			} from '../lib/talvos';
 			import type { MainModule } from '../wasm/talvos-wasm';
 			import talvos from '../wasm/talvos-wasm';
 
@@ -111,11 +119,6 @@ const vis = {
 			window.addEventListener('unhandledrejection', function (event) {
 				errorEl.value = '' + event.reason;
 			});
-
-			const ev_start = new Event('event-binding-lol-TODO-start');
-			const ev_finish = new Event('event-binding-lol-TODO-finish');
-			const ev_tick = new Event('event-binding-lol-TODO-tick');
-			const ev_step = new Event('event-binding-lol-TODO-step');
 
 			const svgEl = new Promise<SVGElement>(async (resolve, reject) => {
 				// TODO we can do better, but...
@@ -231,7 +234,7 @@ const vis = {
 				];
 			})();
 
-			const buffersEl = document.querySelector<HTMLElement>('#talvos section.buffers')!;
+			const buffersEl = rootEl.querySelector<HTMLElement>('section.buffers')!;
 			// TODO source this from inside Talvos' model
 			var lastBuffers: any = {};
 			// TODO uninit memory
@@ -334,6 +337,7 @@ const vis = {
 									Session__params_ref,
 									Session__module_ref,
 									Session__device_ref,
+									Session__cores_ref,
 
 									Session_run,
 									Session_dumpBuffers,
@@ -342,9 +346,11 @@ const vis = {
 									Session_switch,
 									Session_print,
 									Session_continue,
+									Session_tick,
+
+									Session_getCurrentInsn,
 									Session_printContext,
 									Session_getCurrentId,
-									Session_tick,
 
 									Session_fetch_shrubbery,
 								},
@@ -399,6 +405,7 @@ const vis = {
 									module!: Talvos$$Module;
 									device!: Talvos$$Device;
 									lastId!: Talvos$$Dim3;
+									cores!: Talvos$$Cores;
 
 									static bind(ptr: unknown) {
 										try {
@@ -418,6 +425,10 @@ const vis = {
 												new Ptr(wasmMemory.buffer, Session__device_ref(ptr), Talvos$$Device.SIZE)
 											);
 											self.lastId = new Talvos$$Dim3(self.arena.alloc(Talvos$$Dim3.SIZE));
+
+											self.cores = new Talvos$$Cores(
+												new Ptr(wasmMemory.buffer, Session__cores_ref(ptr), Talvos$$Cores.SIZE)
+											);
 										} catch (ex) {
 											Session__destroy__(ptr);
 											if (self?.arena) destroy(self.arena);
@@ -499,6 +510,12 @@ const vis = {
 									}
 									printContext() {
 										Session_printContext(this.ptr);
+									}
+									get currentInsn() {
+										let ret = Session_getCurrentInsn(this.ptr);
+										// if (ret == 0) throw new ReferenceError('no current instruction');
+										if (ret == 0) return undefined;
+										return new Talvos$$Instruction(new Ptr(wasmMemory.buffer, ret, Talvos$$Instruction.SIZE));
 									}
 
 									fetchShrubbery() {
@@ -659,6 +676,11 @@ const vis = {
 					session.params.EntryName = entryEl.selectedOptions.item(0)?.value ?? 'main';
 
 					const debugCtrl = rootEl.querySelector<HTMLElement>('.debugger')!;
+
+					const ev_start = new CustomEvent('event-binding-lol-TODO-start', { detail: { session } });
+					const ev_finish = new CustomEvent('event-binding-lol-TODO-finish', { detail: { session } });
+					const ev_tick = new CustomEvent('event-binding-lol-TODO-tick', { detail: { session } });
+					const ev_step = new CustomEvent('event-binding-lol-TODO-step', { detail: { session } });
 
 					function finish() {
 						withTiming(() => {
@@ -1074,6 +1096,17 @@ const vis = {
 						get connected(): Promise<void>;
 					}
 
+					// TODO
+					type Session = any;
+
+					declare global {
+						interface WindowEventMap {
+							'event-binding-lol-TODO-start': CustomEvent<{ session: Session }>;
+							'event-binding-lol-TODO-tick': CustomEvent<{ session: Session }>;
+							'event-binding-lol-TODO-step': CustomEvent<{ session: Session }>;
+						}
+					}
+
 					(async () => {
 						const ops: { label: string; kind: 'mem' | 'alu'; values: () => Generator<string> }[] = [
 							{
@@ -1152,46 +1185,45 @@ const vis = {
 						}
 						resetState();
 
-						const resetEl = document.querySelector('#talvos .controls button.reset')!;
-						resetEl.addEventListener('click', function () {
-							resetState();
-							drawModule();
-						});
-						function tick() {
-							if (state.cur >= ops.length) return;
+						function deriveState(session: Session) {
+							const core = session.cores.get(0);
+							const insn = core.PC;
+							if (!insn) {
+								state.cur = ops.length;
+								return;
+							}
+							let tgt;
+							if (insn.hasResultType()) tgt = `%${insn.Operands.get(1)}`;
+							else if (insn.Opcode == 62) tgt = 'st';
+							else if (insn.Opcode == 253) tgt = 'ret';
+							else throw new Error(`unknown opcode: ${insn.Opcode}`);
+
+							for (let i = 0; i < ops.length; i++)
+								if (ops[i]!.label == tgt) {
+									state.cur = i;
+									break;
+								}
+
+							const n = parseInt(svgEl.dataset.lanes || '');
 							switch (ops[state.cur]?.kind) {
 								case 'alu':
 									// alu ops complete one "vis step" after they're dispatched
-									state.last = [
-										...state.last,
-										...[
-											...svgEl.querySelectorAll(
-												`:nth-child(${state.cur + 1} of :has(g.results)) g.results .dispatched:not(.completed)`
-											),
-										].map((_): 'completed' => 'completed'),
-									];
+									state.last = core.Microtasks.size() ? [] : Array(n).fill('completed');
 									break;
 								case 'mem':
+									// TODO this is insufficient, since eventually we want these to complete in arbitrary order
 									// memory operations complete one "vis step" at a time
-									state.last = [...state.last, 'completed'];
+									state.last = Array(n - core.Microtasks.size()).fill('completed');
 									break;
 								default:
 									throw new Error(`unknown op kind: ${ops[state.cur]?.kind}`);
 							}
-							const n = parseInt(svgEl.dataset.lanes || '');
-							if (state.last.length >= n) {
-								state = {
-									cur: state.cur + 1,
-									last: [],
-								};
-							}
-							drawModule();
 						}
-						function step() {
-							state = {
-								cur: state.cur + 1,
-								last: [],
-							};
+						function update(ev: CustomEvent<{ session: Session }>) {
+							const {
+								detail: { session },
+							} = ev;
+							deriveState(session);
 							drawModule();
 						}
 
@@ -1382,7 +1414,9 @@ const vis = {
 										} else if (ops[state.cur]!.kind == 'mem') {
 											return [
 												...state.last.map((_, n) => [' '.repeat(n + 1), '•'].join('')),
-												['>', ' '.repeat(state.last.length), '◦'.repeat(4 - state.last.length), line.slice(5)].join(''),
+												['>', ' '.repeat(state.last.length), '◦'.repeat(lanes - state.last.length), line.slice(5)].join(
+													''
+												),
 											];
 										} else {
 											console.error('unknown kind for op', ops[state.cur]);
@@ -1401,23 +1435,21 @@ const vis = {
 								left: 0,
 								behavior: 'smooth',
 							});
-
-							// console.log(textAreaEl.firstChild);
-
-							// textAreaEl.setSelectionRange(7, 12, 'forward');
-							// textAreaEl.selectionStart = 7;
-							// textAreaEl.selectionEnd = 12;
-							// textAreaEl.selectionStart = highlight[0];
-							// textAreaEl.selectionEnd = highlight[1];
 						}
 
-						document.querySelector('#talvos .controls button.vis.step0')!.addEventListener('click', tick);
-						document.querySelector('#talvos .controls button.vis.step1')!.addEventListener('click', step);
+						// TODO: remove these (they won't work any more)
+						// document.querySelector('#talvos .controls button.vis.step0')!.addEventListener('click', tick);
+						// document.querySelector('#talvos .controls button.vis.step1')!.addEventListener('click', step);
+						// const resetEl = document.querySelector('#talvos .controls button.reset')!;
+						// resetEl.addEventListener('click', function () {
+						// 	resetState();
+						// 	drawModule();
+						// });
 
-						window.addEventListener('event-binding-lol-TODO-start', function () {
-							initialContents = textAreaEl.textContent!;
+						window.addEventListener('event-binding-lol-TODO-start', function (ev: CustomEvent<{ session: Session }>) {
 							resetState();
-							drawModule();
+							initialContents = textAreaEl.textContent!;
+							update(ev);
 
 							// scroll to bottom
 							textAreaEl.scrollTo({
@@ -1426,8 +1458,9 @@ const vis = {
 								behavior: 'smooth',
 							});
 						});
-						window.addEventListener('event-binding-lol-TODO-tick', tick);
-						window.addEventListener('event-binding-lol-TODO-step', step);
+						// TODO:
+						window.addEventListener('event-binding-lol-TODO-tick', update);
+						window.addEventListener('event-binding-lol-TODO-step', update);
 						window.addEventListener('event-binding-lol-TODO-finish', function () {
 							resetState(); // reset, but don't redraw
 							textAreaEl.textContent = initialContents;

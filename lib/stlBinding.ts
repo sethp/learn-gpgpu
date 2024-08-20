@@ -144,3 +144,21 @@ export function std$$optional(T: HasAbi) {
 		}
 	}
 }
+
+// std::deque<T> (aka std::queue<t>)
+export function std$$deque(T: HasAbi) {
+	return class {
+		static get T() {
+			return T;
+		}
+		static get SIZE(): number {
+			return 24;
+		}
+		constructor(public ptr: Ptr) { }
+
+		size() {
+			return this.ptr.getUsize(20, LITTLE_ENDIAN);
+		}
+	}
+}
+std$$deque.SIZE = 24;

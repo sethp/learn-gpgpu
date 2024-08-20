@@ -1,9 +1,11 @@
 import { eagerDeref } from "./binding";
 import { Ptr } from "./binding/ptr";
 import { UTF8ArrayToString, stringToUTF8Array } from "./binding/strings";
-import { std$$optional, std$$string, std$$vector } from "./stlBinding";
+import { std$$deque, std$$optional, std$$string, std$$vector } from "./stlBinding";
 
 const LITTLE_ENDIAN = true; // yay booleans
+
+const NULLPTR = 0;
 
 export class Talvos$$Params {
 	constructor(public ptr: Ptr) { }
@@ -198,3 +200,84 @@ export class Talvos$$Dim3 {
 	}
 
 }
+
+export class Talvos$$Instruction {
+	constructor(public ptr: Ptr) { }
+	static get SIZE() {
+		return 20;
+	}
+
+	// hmm, nulls.
+	// TODO: what's at the very beginning of memory? can we ban pointers to it at construction?
+	hasResultType() { return this.ptr.getUsize(0, LITTLE_ENDIAN) != NULLPTR; }
+	get ResultType() {
+		return new Talvos$$Type(this.ptr.deref(0, Talvos$$Type.SIZE, LITTLE_ENDIAN));
+	}
+
+	get Opcode() {
+		return this.ptr.data.getUint16(4, LITTLE_ENDIAN);
+	}
+
+	get NumOperands() {
+		return this.ptr.data.getUint16(6, LITTLE_ENDIAN);
+	}
+
+	get Operands() {
+		// fixme: this could be a SizedCArray type or something in lib/binding
+		const elemSize = 4;
+		const n = this.NumOperands;
+		const ptr = this.ptr.deref(8, elemSize * n, LITTLE_ENDIAN);
+		return new class {
+			get(idx: number) {
+				if (idx < 0 || idx > n) {
+					throw new Error(`out of bounds access: for index ${idx} with elements [0..${n})`);
+				}
+				const offset = idx * elemSize;
+				return ptr.data.getUint32(offset, LITTLE_ENDIAN);
+			}
+
+			[Symbol.iterator]() {
+				const [start, end] = ptr.reslice(ptr.byteLength);
+				var itr = start;
+				return {
+					next() {
+						if (itr.addr >= end.addr) return { done: true, value: undefined as never };
+
+						const ret = {
+							done: false,
+							value: itr.data.getUint32(0, LITTLE_ENDIAN),
+						};
+						itr = itr.slice(elemSize);
+						return ret;
+					},
+				};
+			}
+		}
+	}
+}
+
+export class Talvos$$Type {
+	constructor(public ptr: Ptr) { }
+	static get SIZE() {
+		return 88;
+	}
+}
+
+export class Talvos$$Core {
+	constructor(public ptr: Ptr) { }
+	static get SIZE() {
+		return 28;
+	}
+
+	get Microtasks() {
+		return new (std$$deque(undefined as any))(this.ptr.slice(4, 4 + std$$deque.SIZE))
+	}
+
+	get PC() {
+		// nullable
+		let tgt = this.ptr.deref(0, Talvos$$Instruction.SIZE, LITTLE_ENDIAN);
+		return tgt.addr == 0 ? null : new Talvos$$Instruction(tgt);
+	}
+}
+
+export class Talvos$$Cores extends std$$vector(Talvos$$Core) { }
