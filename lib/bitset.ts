@@ -25,19 +25,34 @@ interface Data {
 	byteLength: number
 }
 
-// @ts-expect-error "duplicate identifier BitSet" (seems not to like my top-level await so much)
 export class BitSet {
 	words: BigUint64Array
 	readonly growable: boolean
 
 	constructor(iterable?: Iterable<number>, { data }: { data?: Data } = {}) {
-		this.words = new BigUint64Array(data!.buffer, data!.byteOffset, data!.byteLength >> 3);
-		// this.growable = (buffer === undefined);
-		this.growable = false;
+		const buffer = data?.buffer;
+		this.words = new BigUint64Array(buffer ?? new ArrayBuffer(0), data?.byteOffset, (data?.byteLength ?? 0) >> 3);
+		this.growable = (buffer === undefined);
+		// this.growable = false;
 
+		// TODO encheapen copy if `iterable` is a BitSet
 		for (const v of iterable ?? []) {
 			this.add(v);
 		}
+	}
+
+	static all(upTo: number) {
+		// TODO: efficiency
+		return new BitSet(Array(upTo).fill(undefined).map((_, i) => i))
+		// maybe something like
+		//
+		// var bs = Object.create(this.prototype);
+		// bs.words = new BigUint64Array(new ArrayBuffer(upTo >> (BigUint64Array.BYTES_PER_ELEMENT * 8)));
+		// bs.growable = true;
+		//
+		// ... set all the bits ...
+		//
+		// return bs;
 	}
 
 	asRef() {
@@ -78,15 +93,22 @@ export class BitSet {
 		return (val & mask) === 0n;
 	}
 
-	has(item: number) {
-		const word = item >>> 6;
-		const mask = 1n << BigInt(item & 0x3f);
+	$diff(that: BitSet) {
+		const n = Math.min(this.words.length, that.words.length);
+		for (let k = 0; k < n; ++k) {
+			this.words[k]! &= ~that.words[k]!;
+		}
+		return this;
+	}
+
+	has(item: number | bigint) {
+		const word = Number(item) >>> 6;
+		const mask = 1n << BigInt(Number(item) & 0x3f);
 		return ((this.words[word] ?? 0n) & mask) !== 0n;
 	}
 
 	size() {
-		// TODO: efficiency
-		return [...this].length;
+		return this.words.reduce((sz, w) => sz + popcount(w), 0);
 	}
 
 	[Symbol.iterator]() {
@@ -152,3 +174,7 @@ export class BitSet {
 // for (const x of c) fnc(x); // execute fnc on each value stored in c (allows early exit with break)
 // c.trim(); // reduce the memory usage of the bitmap if possible, the content remains the same
 
+
+// load-bearing empty module: don't worry about it
+// https://github.com/microsoft/TypeScript/issues/59777
+module _z { }

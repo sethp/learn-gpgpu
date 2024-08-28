@@ -1,6 +1,7 @@
 import { eagerDeref } from "./binding";
 import { Ptr } from "./binding/ptr";
 import { UTF8ArrayToString, stringToUTF8Array } from "./binding/strings";
+import { BitSet } from "./bitset";
 import { std$$deque, std$$optional, std$$string, std$$vector } from "./stlBinding";
 
 const LITTLE_ENDIAN = true; // yay booleans
@@ -266,11 +267,15 @@ export class Talvos$$Type {
 export class Talvos$$Core {
 	constructor(public ptr: Ptr) { }
 	static get SIZE() {
-		return 28;
+		return 40;
+	}
+
+	get Pending() {
+		return new BitSet(undefined, { data: this.ptr.slice(8, 16).data })
 	}
 
 	get Microtasks() {
-		return new (std$$deque(undefined as any))(this.ptr.slice(4, 4 + std$$deque.SIZE))
+		return new (std$$deque(undefined as any))(this.ptr.slice(16, 16 + std$$deque.SIZE))
 	}
 
 	get PC() {

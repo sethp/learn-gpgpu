@@ -1372,8 +1372,37 @@ What if instead, we left a record in the (non-ragged left-hand) gutter:
 
 which can (maybe) be read as "four OpAccessChain results were computed in parallel, then four sequential OpLoads happened, then four parallel OpAccessChains again...". Then, we "highlight" the line and its (possibly growing) trail of partial results; "tick" will act on dots, "step" will act on lines, and we've left a record of both the program's cardinality _and_ its simultaneity.
 
+### on pipelines, scoreboards, and didacticism
+
+The current model of a SIMT processor that retires individual lanes as soon as possible would seem somewhat incompatible with pipelining: a more realistic model would be something like a split pipe, where whatever work is necessary to identify dependencies (data or otherwise) happens "ahead" of dispatch to the main execution resources; else we'd need enough pipeline registers to represent multiple simultaneous stalled operations, which starts to smell like an OoO pipeline.
+
+In a real GPU, then, the scoreboard's job would be to identify which operations are "ready" to go at what cycle offsets, and the scheduler would slot instructions into the main SIMD pipeline accordingly. Crucially, though, it would probably wait for all of the lanes' dependencies to be satisfied before slotting in any of them: so we would only see the 1-by-1 behavior if our hardware both had a 1-by-1 memory controller and the core were willing to sub-partition their workload into chunks less than their full width. Likely there's not enough reason to do that: any local data dependencies will be satisfied "all at once" (sorta, see below), and probably any realistic memory architecure will be sized similarly.
+
+There's some weirdness here around e.g. late-model NVIDIA GPUs that have a "chime" of 2 cycles: they still execute 32-thread warps, but across only 16 execution units. So the scheduler _could_ choose to dispatch one half of the warp without waiting for the other half; but will it? Independent Thread Scheduling adds more wrinkles here: if a warp diverges, and half have a structural hazard on (say) the division unit, will the other half have their results visible sooner?
+
+Since we're choosing _not_ to model a pipeline (at least, as long as we can avoid it) or more than one PC per "work unit" (core-program-coords triple), we could keep the current "operation is completed one tick after its dependencies are satisfied," but it'd be more accurate to wait for up to W operations on a core and then complete those all at once & atomically move to the next work unit.
+
+That introduces a third "state" for an instruction to be in (oh, look, we accidentally a pipelining): ready to go, but not yet completed. What's a good minimal example for motivating that? We might:
+
+1. change the core sizing to work group sizing piece (a la volta) so we have only 2 lanes despite having a work group size of 4 ("chunk"?)
+2. "overschedule" our example, so the single core has 2 assigned work groups ? (feels like work mapping)
+3. a handful of words saying something like: "the core accumulates dependencies for a W-wide set of operations before simultaneously completing them"?
+
+Alternatively, we could leave the model as we have it now, with a warning: "any program that depends on individual completions for correctness will be wrong on a real GPU." If a program is correct under _any_ reordering of its individual operations, then it will be correct on a GPU that expresses fewer reorderings; it's a simpler model to _explain_ that "your results might appear in any order, don't count on seeing them in any particular arrangement." It's not as useful of a model, though, as saying "results are batched hierarchically, with the lowest level of batching being the lane-width of the core": if results can complete in _any_ order, then why does it matter how I size my batches?
+
+Or, put another way, is the set of useful programs that can be written batch-naively large enough that we can defer that wrinkle? It seems like no, the whole game of GPU programming feels very much like lining up your problem's batches such that you're matching the hardware's expectations & capabilities. Even the CUDA `vecadd` example has that `if (i < N)` guard in it because the batch sizes don't line up!
+
+If your problem is truly embarassingly parallel, and always happens to express power-of-two sizes at every tier, can we then ignore batching? Maybe, as long as the sizing is also greater than 2^5 everywhere (or whatever the "warp" size equivalent is on your platform). But if the task is to think about how to break down a problem such that it expresses reasonable throughput in a GPU, surely a more effective strategy is to look for batch-sized seams in the problem domain, right? If it's image processing, or 3d graphics, then the dimensionality of the tiers help somewhat—but that immediately falls down again if you want to go to e.g. a sparse representation of the Game of Life instead of a full grid.
+
+Yeah, so "thinking in batches" seems to be the throughline here then. So the reason to have operations get ready to complete as a batch is self-evident: it's a form of batching expressed by the hardware, which is what we're trying to make transparent here. Modeling pipelining would be a nice to have, but it's a few degrees off-axis: it is a sliding batch, in a way, but the pipeline registers and control stalls still conspire to blur the lines between the sequential execution model and operations that happen to be pipelined together. At some point there'll be a strong enough reason to bring that model into this system, but it's none of SIMT (core-sized batching), work mapping (many-core batching), memory ("remote" batching), or parallelism (cross-program batching).
+
 <!--
 TODO
-(for later: there's probably a better way to get the visual metaphor to line up with the "pacman eats the future and leaves the past in his wake" vis down below)
+how do we present the "costs" of things in advance? "badging" with diamonds? separating out memory costs (which are somewhat know-able for e.g. L1 vs L2 but must be ultimately discovered dynamically vs a more fixed "static" cost like FP divide? except, even FP division is going to be somewhat dynamic, unless you're sure you're on the "ridge" of the roofline graph)
+-->
+
+<!--
+TODO
+(for later: there's probably a better way to get the visual metaphor to line up with the "pacman eats the future and leaves the past in his wake" vis down below —probably by ~shifting it 90°? we can also afford more cores that way, too)
 (also for later: what about bigger problem sizes tho)
  -->

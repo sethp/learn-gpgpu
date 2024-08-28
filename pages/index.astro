@@ -911,7 +911,8 @@ const vis = {
 				<div class="debugger" hidden>
 					<button class="tick">tick</button>
 					<!-- cf. PipelineExecutor::help -->
-					<button class="step">step</button>
+					<button class="step" disabled>step</button>
+					<!-- step disabled b/c of glitch in vis, see event binding below -->
 					<button class="switch" hidden>switch</button>
 					<button class="print" hidden>print</button>
 					<button class="continue">continue</button>
@@ -1092,6 +1093,8 @@ const vis = {
 					// see also: https://discord.com/channels/830184174198718474/1263201016212361329/1263201016212361329
 				}
 				<script>
+					import { BitSet } from '../lib/bitset';
+
 					interface ShadowRootElement extends Element {
 						get connected(): Promise<void>;
 					}
@@ -1108,11 +1111,10 @@ const vis = {
 					}
 
 					(async () => {
-						const ops: { label: string; kind: 'mem' | 'alu'; values: () => Generator<string> }[] = [
+						const ops: { label: string; values: () => Generator<string> }[] = [
 							{
 								// %2 = OpAccessChain %_ptr_Input_uint32_t %gl_GlobalInvocationID %n
 								label: '%2',
-								kind: 'alu',
 								values: function* () {
 									let addr = 0x1000000000000;
 									while (true) {
@@ -1125,7 +1127,6 @@ const vis = {
 							{
 								// %3 = OpLoad %uint32_t %2 Aligned 4
 								label: '%3',
-								kind: 'mem',
 								values: function* () {
 									let last = 0;
 									while (true) {
@@ -1136,7 +1137,6 @@ const vis = {
 							{
 								// %4 = OpAccessChain %_ptr_PhysicalStorageBuffer_uint32_t %buf0 %3
 								label: '%4',
-								kind: 'alu',
 								values: function* () {
 									// const base = 0x2000000000000;
 									let offset = 0;
@@ -1151,7 +1151,6 @@ const vis = {
 							{
 								// OpStore %4 %3 Aligned 4
 								label: 'st',
-								kind: 'mem',
 								values: function* () {
 									while (true) {
 										yield '✔';
@@ -1161,7 +1160,6 @@ const vis = {
 							{
 								// OpReturn
 								label: 'ret',
-								kind: 'alu',
 								values: function* () {
 									while (true) {
 										yield '✔';
@@ -1169,17 +1167,27 @@ const vis = {
 								},
 							},
 						];
-						var state: { cur: number; last: 'completed'[]; gen?: Generator<string> };
+						// history[step][tick][lane]
+
+						//  so history[0] should be [['ready', 'ready', 'ready', 'ready']]
+						// and history[1] should be [['ready', null, null, null], [null, 'ready', null, null], ...]
+						var state: {
+							cur: number;
+							history: ('ready' | null)[][][];
+							gen?: Generator<string>;
+							prev: BitSet;
+						};
 						function resetState() {
 							state = {
 								cur: 1,
-								// last: ['completed'],
 								// gen: (() => {
 								// 	const it = ops[1]!.values();
 								// 	it.next();
 								// 	return it;
 								// })(),
-								last: [],
+								history: [[Array(4).fill('ready')]],
+								// TODO kill `last`
+								prev: BitSet.all(4),
 								gen: ops[1]!.values(),
 							};
 						}
@@ -1198,25 +1206,43 @@ const vis = {
 							else if (insn.Opcode == 253) tgt = 'ret';
 							else throw new Error(`unknown opcode: ${insn.Opcode}`);
 
+							const n = parseInt(svgEl.dataset.lanes || '');
 							for (let i = 0; i < ops.length; i++)
 								if (ops[i]!.label == tgt) {
+									if (state.cur != i) {
+										state.history[state.cur]!.push(
+											[...state.prev].reduce(
+												(arr, v) => {
+													arr[v!] = 'ready';
+													return arr;
+												},
+												Array(n).fill(null) as ('ready' | null)[]
+											)
+										);
+										state.prev = BitSet.all(n);
+									}
 									state.cur = i;
 									break;
 								}
 
-							const n = parseInt(svgEl.dataset.lanes || '');
-							switch (ops[state.cur]?.kind) {
-								case 'alu':
-									// alu ops complete one "vis step" after they're dispatched
-									state.last = core.Microtasks.size() ? [] : Array(n).fill('completed');
-									break;
-								case 'mem':
-									// TODO this is insufficient, since eventually we want these to complete in arbitrary order
-									// memory operations complete one "vis step" at a time
-									state.last = Array(n - core.Microtasks.size()).fill('completed');
-									break;
-								default:
-									throw new Error(`unknown op kind: ${ops[state.cur]?.kind}`);
+							while (state.cur >= state.history.length) state.history.push([]);
+
+							const Pending = core.Pending;
+
+							let last = new BitSet([...state.prev].map((v) => Number(v))); // last := state.prev
+							last.$diff(Pending); // last \= Pending
+							state.prev.$diff(last); // state.prev \= last
+
+							if (last.size() > 0) {
+								state.history[state.cur]!.push(
+									[...last].reduce(
+										(arr, v) => {
+											arr[v!] = 'ready';
+											return arr;
+										},
+										Array(n).fill(null) as ('ready' | null)[]
+									)
+								);
 							}
 						}
 						function update(ev: CustomEvent<{ session: Session }>) {
@@ -1317,21 +1343,45 @@ const vis = {
 										progressEl.setAttribute('text-anchor', 'middle');
 										progressEl.setAttribute('dy', '0 0.4em 0.4em 0.4em 0.4em');
 
-										if (idx < state.cur) progressEl.append('••••');
-										else progressEl.append('•'.repeat(state.last.length), '◦'.repeat(lanes - state.last.length));
+										if (idx < state.cur) progressEl.append('•'.repeat(lanes));
+										else
+											progressEl.append(
+												Array(lanes)
+													.fill(undefined)
+													.map((_, i) => (state.prev.has(i) ? '◦' : '•'))
+													.join('')
+											);
 
 										progressEl.setAttribute(
 											'dx',
 											(() => {
-												if (idx <= state.cur && op.kind == 'alu') return ['0', ...Array(lanes - 1).fill('-1ch')];
-												else if (idx < state.cur && op.kind == 'mem') return ['0', ...Array(lanes - 1).fill('-0.5ch')];
-												else if (op.kind == 'mem')
-													return [
-														'0',
-														...Array(state.last.length).fill('-0.5ch'),
-														...Array(lanes - state.last.length - 1).fill('-1ch'),
-													];
-												else throw new Error(`unknown op kind: ${op.kind}`);
+												// given
+												// [
+												//     ["ready", null, null, null],
+												//     [null, "ready", null, null],
+												//     [null, null, "ready", null]
+												// ]
+												// we want:
+												//  [ 0, '-0.5ch', '-0.5ch', '-0.5ch' ]
+												// because the "natural" spacing there is going to push us "right" 1ch every time, so
+												// ending up at -0.5ch means we'll go "forward" 0.5ch
+												const hist = state.history[idx]!;
+												const rpos = Array(lanes).fill(hist.length);
+												let i = 0;
+												for (const tick of hist) {
+													tick.forEach((v, j) => {
+														if (!v) return;
+														rpos[j] = i;
+													});
+													i++;
+												}
+
+												let dx = ['0'];
+												for (let k = 0; k < rpos.length - 1; k++) {
+													dx.push(`${(rpos[k + 1] - rpos[k]) / 2 - 1}ch`);
+												}
+
+												return dx;
 											})().join(' ')
 										);
 									}
@@ -1357,7 +1407,7 @@ const vis = {
 										resEl.setAttribute('height', '20');
 										resEl.classList.add('result');
 										if (idx <= state.cur) resEl.classList.add('dispatched');
-										if (idx < state.cur || (idx == state.cur && state.last[i] == 'completed')) {
+										if (idx < state.cur) {
 											resEl.classList.add('completed');
 											const titleEl = resEl.appendChild(
 												document.createElementNS('http://www.w3.org/2000/svg', 'title')
@@ -1377,8 +1427,6 @@ const vis = {
 								})
 							);
 
-							const label = ops[state.cur]?.label;
-
 							// It'd be nice if the spirv-tools assembler kept track of which source line(s) it got an
 							// instruction from, but it doesn't.
 							// TODO stop doing this on every "tick"
@@ -1390,40 +1438,33 @@ const vis = {
 										if (line.includes(`%${cur + 2} =`)) linenoToIndex[lineno] = cur++;
 										else if (line.includes('OpStore')) linenoToIndex[lineno] = cur++;
 										else if (line.includes('OpReturn')) linenoToIndex[lineno] = cur++;
-										else linenoToIndex[lineno] = -1;
 									};
 								})()
 							);
 							textAreaEl.textContent = initialContents!
 								.split('\n')
 								.flatMap((line, lineno) => {
-									const idx = linenoToIndex[lineno]!;
-									if (idx >= 0 && idx < state.cur) {
-										if (ops[idx]!.kind == 'alu') return [' ', '••••', line.slice(5)].join('');
-										else if (ops[idx]!.kind == 'mem')
-											return [' •', '  •', '   •', [' ', '   •', line.slice(5)].join('')];
-									} else if (state.cur >= ops.length) {
-										return [line];
-									} else if (
-										(label == 'ret' && line.includes('OpReturn')) ||
-										(label == 'st' && line.includes('OpStore')) ||
-										line.includes(`${label} =`)
-									) {
-										if (ops[state.cur]!.kind == 'alu') {
-											return ['>', state.last.length == 0 ? '◦◦◦◦' : '••••', line.slice(5)].join('');
-										} else if (ops[state.cur]!.kind == 'mem') {
-											return [
-												...state.last.map((_, n) => [' '.repeat(n + 1), '•'].join('')),
-												['>', ' '.repeat(state.last.length), '◦'.repeat(lanes - state.last.length), line.slice(5)].join(
-													''
-												),
-											];
-										} else {
-											console.error('unknown kind for op', ops[state.cur]);
-										}
+									const idx = linenoToIndex[lineno];
+									if (typeof idx === 'undefined' || !state.history[idx]) return [line];
+
+									const ret = [];
+									for (let i = 0; i < state.history[idx].length; i++) {
+										ret.push([' ', ...state.history[idx][i]!.map((v) => (v == 'ready' ? '•' : ' '))].join(''));
 									}
 
-									return [line];
+									if (idx == state.cur)
+										ret.push(
+											[
+												'>',
+												...Array(lanes)
+													.fill(undefined)
+													.map((_, idx) => (state.prev.has(idx) ? '◦' : ' ')),
+												line.slice(5),
+											].join('')
+										);
+									else ret[ret.length - 1] += line.slice(5);
+
+									return ret;
 								})
 								.join('\n');
 
@@ -1460,7 +1501,10 @@ const vis = {
 						});
 						// TODO:
 						window.addEventListener('event-binding-lol-TODO-tick', update);
-						window.addEventListener('event-binding-lol-TODO-step', update);
+						window.addEventListener(
+							'event-binding-lol-TODO-step',
+							update /* TODO this is wrong now, since we don't "see" the history of when the ticks come in */
+						);
 						window.addEventListener('event-binding-lol-TODO-finish', function () {
 							resetState(); // reset, but don't redraw
 							textAreaEl.textContent = initialContents;
@@ -1655,12 +1699,18 @@ const vis = {
 						</td>
 					</tr>
 					<tr>
-						<td>•</td><td>
+						<td colspan="2">
 							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" height="30px">
 								<title>solid outlined box</title>
 								<rect height="20" width="20" style="fill-opacity: 0; stroke: black; stroke-width: 1px;"></rect>
 							</svg></td
 						><td><em>completed</em> operation that has produced a result.</td>
+					</tr>
+					<tr>
+						<td colspan="2">•</td><td
+							>a result that is <em>ready</em> to be produced; i.e. all of its dependencies are available. When enough results
+							are ready, the core will execute LANE_WIDTH operations to complete them in parallel.</td
+						>
 					</tr>
 					<tr>
 						<td>•• ... <br />(in textarea)</td><td
