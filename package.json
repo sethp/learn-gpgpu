@@ -19,6 +19,10 @@
     "typescript": "^5.4.5"
   },
   "devDependencies": {
+    "typedfastbitset": "^0.4.2",
     "vitest": "^1.6.0"
+  },
+  "optionalDependencies": {
+    "roaring": "link:../../SalvatorePreviti/roaring-node"
   }
 }

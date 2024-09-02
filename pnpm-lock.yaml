@@ -20,7 +20,14 @@ importers:
       typescript:
         specifier: ^5.4.5
         version: 5.4.5
+    optionalDependencies:
+      roaring:
+        specifier: link:../../SalvatorePreviti/roaring-node
+        version: link:../../SalvatorePreviti/roaring-node
     devDependencies:
+      typedfastbitset:
+        specifier: ^0.4.2
+        version: 0.4.2
       vitest:
         specifier: ^1.6.0
         version: 1.6.0
@@ -2178,6 +2185,9 @@ packages:
   type-fest@2.19.0:
     resolution: {integrity: sha512-RAH822pAdBgcNMAfWnCBU3CFZcfZ/i1eZjwFU/dsLKumyuuP3niueg2UAukXYF0E2AAoc82ZSSf9J0WQBinzHA==}
     engines: {node: '>=12.20'}
+
+  typedfastbitset@0.4.2:
+    resolution: {integrity: sha512-R+n0vz96Fmcz8lRnjKmoFVe6Q3ST1R79WtxubWdsR3RszA9ZmyMbPqhmAZGznACga+W0mFncQqpWHYR+isWgZA==}
 
   typesafe-path@0.2.2:
     resolution: {integrity: sha512-OJabfkAg1WLZSqJAJ0Z6Sdt3utnbzr/jh+NAHoyWHJe8CMSy79Gm085094M9nvTPy22KzTVn5Zq5mbapCI/hPA==}
@@ -5176,6 +5186,8 @@ snapshots:
   type-detect@4.0.8: {}
 
   type-fest@2.19.0: {}
+
+  typedfastbitset@0.4.2: {}
 
   typesafe-path@0.2.2: {}
 
