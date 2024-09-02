@@ -83,6 +83,22 @@ suite("BitSet.size", async () => {
 		if (size != 6) throw new Error("oops")
 	})
 
+	bench("wasm_2xi64", () => {
+		const words = b.words;
+		const nw = words.length;
+		let size = 0;
+		let k = 0 | 0;
+		for (; k + 2 < nw; k += 2)
+			size += popcount_wasm_2xi64(words[k]!, words[k + 1]!);
+
+		for (; k < nw; ++k) {
+			size += popcount(words[k]!);
+		}
+
+
+		if (size != 6) throw new Error("oops")
+	})
+
 	await import('typedfastbitset').then(({ TypedFastBitSet }) => {
 		const b = new TypedFastBitSet(vals);
 		bench("TypedFastBitSet.js	", () => {
@@ -171,21 +187,31 @@ suite("popcount", () => {
 	})
 });
 
-suite('popcount x4', () => {
+suite('popcount 32x4 (128 bit)', () => {
 	bench('baseline', () => {
-		popcount(0n)
-		popcount(0n)
-		popcount(0n)
-		popcount(0n)
+		for (let i = 0; i < 1_000; i++) {
+			popcount_wasm_32(0)
+			popcount_wasm_32(0)
+			popcount_wasm_32(0)
+			popcount_wasm_32(0)
+		}
 	})
 
 	bench('bithacks x4', () => {
-		popcount_bithacks_x4_32(0, 0, 0, 0)
+		for (let i = 0; i < 1_000; i++) {
+			popcount_bithacks_x4_32(0, 0, 0, 0)
+		}
 	})
 
 	bench('wasm_v128', () => {
-		popcount_wasm_v128(0n, 0n)
-		popcount_wasm_v128(0n, 0n)
+		for (let i = 0; i < 1_000; i++) {
+			popcount_wasm_v128(0n, 0n)
+		}
+	})
+	bench('wasm_2xi64', () => {
+		for (let i = 0; i < 1_000; i++) {
+			popcount_wasm_2xi64(0n, 0n)
+		}
 	})
 
 
@@ -391,16 +417,50 @@ export const popcount_wasm_32 = instance.exports['i32.popcnt'] as (v: number) =>
       ;;drop
       ;;local.get $v
       ;;i32x4.extract_lane 3
+        )
+	(func (export "2xi64.popcnt")  ;; not to be confused with i64x2 (:
+      (param i64 i64) (result i32)
+      (local $v v128)
+      local.get 0
+      i64.popcnt
+      local.get 1
+      i64.popcnt
 
-  ))
-`
+      i64.add
+      i32.wrap_i64
+        )
+)	`;
 // via https://webassembly.github.io/wabt/demo/wat2wasm/
+// (tested with:
+`
+const wasmInstance =
+      new WebAssembly.Instance(wasmModule, {});
+//const popcnt = wasmInstance.exports['v128.popcnt'];
+const popcnt = wasmInstance.exports['2xi64.popcnt'];
+
+
+//const uint128max = 0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFFn;
+const uint64max = 0xFFFF_FFFF_FFFF_FFFFn;
+
+console.log('0x' + popcnt(0x0n, 0x0n).toString(16));
+console.log(popcnt(0x0n, 0x0n));
+console.log(popcnt(0x1n, 0x1n));
+
+console.log(popcnt(0xffn, 0x00n));
+console.log(popcnt(uint64max, 0x0n));
+
+console.log(popcnt(uint64max, uint64max));
+console.log(popcnt(uint64max, uint64max -1n));
+`;
+// )
+
 const wasm2 = (await
 	WebAssembly.instantiateStreaming(
-		fetch("data:application/wasm;base64,AGFzbQEAAAABBwFgAn5+AX8DAgEABw8BC3YxMjgucG9wY250AAAKOwE5AQF7IAD9EiAB/R4B/WL9ff1/IgL9DP////8AAQID/////wgJCgv9DiAC/a4BIgL9GwEgAv0bA2oLAA0EbmFtZQIGAQABAgF2"),
+		fetch("data:application/wasm;base64,AGFzbQEAAAABBwFgAn5+AX8DAwIAAAceAgt2MTI4LnBvcGNudAAADDJ4aTY0LnBvcGNudAABCkgCOQEBeyAA/RIgAf0eAf1i/X39fyIC/Qz/////AAECA/////8ICQoL/Q4gAv2uASIC/RsBIAL9GwNqCwwBAXsgAHsgAXt8pwsAEgRuYW1lAgsCAAECAXYBAQIBdg=="),
 		{}));
 
 export const popcount_wasm_v128 = wasm2.instance.exports['v128.popcnt'] as (v0: bigint, v1: bigint) => number;
+export const popcount_wasm_2xi64 = wasm2.instance.exports['2xi64.popcnt'] as (v0: bigint, v1: bigint) => number;
 
 
 module none { }
